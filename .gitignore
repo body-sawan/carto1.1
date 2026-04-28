@@ -6,5 +6,6 @@ build/
 .next/
 coverage/
 *.log
+data/
 apps/cart-edge/data/
 apps/cart-screen/.expo/

@@ -48,9 +48,14 @@ CART_ID=cart-01
 CART_EDGE_PUBLIC_HOST=localhost
 STORAGE_DIR=./data
 NODE_ENV=development
+BLUETOOTH_MODE=simulator
+BLUETOOTH_DEVICE_NAME=Carto-cart-01
+BLE_SERVICE_UUID=6e400001-b5a3-f393-e0a9-e50e24dcca9e
+BLE_WRITE_CHARACTERISTIC_UUID=6e400002-b5a3-f393-e0a9-e50e24dcca9e
+BLE_NOTIFY_CHARACTERISTIC_UUID=6e400003-b5a3-f393-e0a9-e50e24dcca9e
 ```
 
-The edge listens on `HOST` and `PORT`. QR pairing uses `CART_EDGE_PUBLIC_HOST` and `PORT`, so set `CART_EDGE_PUBLIC_HOST` to the Pi hostname or IP during device testing.
+The edge listens on `HOST` and `PORT`. `CART_EDGE_PUBLIC_HOST` is used only for the development HTTP fallback URL. The official QR payload is BLE-first.
 
 The screen WebSocket URL can be set with:
 
@@ -62,7 +67,6 @@ EXPO_PUBLIC_CART_EDGE_WS_URL=ws://localhost:4000/ws
 
 - `GET /health`
 - `GET /pairing/current`
-- `POST /pairing/:pairingCode/list`
 
 Development endpoints:
 
@@ -70,6 +74,7 @@ Development endpoints:
 - `GET /dev/catalog`
 - `POST /dev/session/reset`
 - `POST /dev/bluetooth/list`
+- `POST /pairing/:pairingCode/list` development HTTP fallback for QR testing
 - `POST /dev/scan`
 - `POST /dev/remove`
 - `POST /dev/move`
@@ -81,6 +86,55 @@ Backward-compatible endpoints currently kept:
 
 - `POST /dev/snapshot`
 - `POST /dev/checkout`
+
+## Final BLE QR Flow
+
+1. Cart screen displays the BLE QR payload.
+2. Phone scans the QR code.
+3. Phone connects to `bluetoothDeviceName`, for example `Carto-cart-01`.
+4. Phone writes UTF-8 shopping-list JSON to `writeCharacteristicUuid`.
+5. Cart edge validates `pairingCode` against the active session.
+6. Cart edge receives the list, persists the session, broadcasts `cart.snapshot`, and starts `SHOPPING`.
+
+QR payload:
+
+```json
+{
+  "cartId": "cart-01",
+  "sessionId": "...",
+  "pairingCode": "123456",
+  "transport": "ble",
+  "bluetoothDeviceName": "Carto-cart-01",
+  "serviceUuid": "6e400001-b5a3-f393-e0a9-e50e24dcca9e",
+  "writeCharacteristicUuid": "6e400002-b5a3-f393-e0a9-e50e24dcca9e",
+  "notifyCharacteristicUuid": "6e400003-b5a3-f393-e0a9-e50e24dcca9e",
+  "expiresAt": "2026-04-29T12:00:00.000Z"
+}
+```
+
+The phone writes:
+
+```json
+{
+  "pairingCode": "123456",
+  "listId": "list-001",
+  "source": "external-web-app",
+  "items": [
+    { "productId": "p_milk", "name": "Milk 1L", "quantity": 2 }
+  ],
+  "createdAt": "2026-04-29T12:00:00.000Z"
+}
+```
+
+## Laptop Development Mode
+
+Real BLE receiving is not expected to run on a Windows laptop. Use:
+
+```env
+BLUETOOTH_MODE=simulator
+```
+
+In simulator mode the edge keeps the same dev endpoints and does not require BLE hardware. Use `POST /dev/bluetooth/list` for fast local testing, or `POST /pairing/:pairingCode/list` as a development HTTP fallback after reading `receiveListUrl` from `GET /pairing/current`.
 
 ## Demo Flow
 
@@ -104,12 +158,13 @@ $pairing = Invoke-RestMethod http://localhost:4000/pairing/current
 $pairing
 ```
 
-Send a shopping list to the QR pairing endpoint:
+Send a shopping list through the dev transport:
 
 ```powershell
 $list = @{
   listId = "list-001"
-  source = "local-http"
+  source = "external-web-app"
+  pairingCode = $pairing.pairingCode
   items = @(
     @{ productId = "p_milk"; name = "Milk 1L"; quantity = 2 },
     @{ productId = "p_bread"; name = "Bread"; quantity = 1 }
@@ -117,6 +172,12 @@ $list = @{
   createdAt = (Get-Date).ToUniversalTime().ToString("o")
 } | ConvertTo-Json -Depth 5
 
+Invoke-RestMethod -Method Post http://localhost:4000/dev/bluetooth/list -ContentType "application/json" -Body $list
+```
+
+Development HTTP fallback:
+
+```powershell
 Invoke-RestMethod -Method Post -Uri $pairing.receiveListUrl -ContentType "application/json" -Body $list
 ```
 
@@ -153,7 +214,7 @@ Reset the session:
 Invoke-RestMethod -Method Post http://localhost:4000/dev/session/reset
 ```
 
-## QR Pairing Test
+## Pairing Test
 
 `GET /pairing/current` returns:
 
@@ -162,22 +223,39 @@ Invoke-RestMethod -Method Post http://localhost:4000/dev/session/reset
   "cartId": "cart-01",
   "sessionId": "...",
   "pairingCode": "123456",
-  "transport": "local-http",
+  "transport": "ble",
+  "bluetoothDeviceName": "Carto-cart-01",
+  "serviceUuid": "6e400001-b5a3-f393-e0a9-e50e24dcca9e",
+  "writeCharacteristicUuid": "6e400002-b5a3-f393-e0a9-e50e24dcca9e",
+  "notifyCharacteristicUuid": "6e400003-b5a3-f393-e0a9-e50e24dcca9e",
   "receiveListUrl": "http://localhost:4000/pairing/123456/list",
   "expiresAt": "2026-04-29T12:00:00.000Z",
   "qrPayload": "{\"cartId\":\"cart-01\",...}"
 }
 ```
 
-The QR payload is the JSON string form of the pairing object without wrapper metadata. During development the screen also shows the receive URL as text.
+The QR payload is the JSON string form of the BLE object. `receiveListUrl` is metadata for development fallback and is not part of the QR payload.
+
+## Raspberry Pi BLE Mode
+
+Use these values on the Raspberry Pi:
+
+```env
+BLUETOOTH_MODE=ble
+BLUETOOTH_DEVICE_NAME=Carto-cart-01
+BLE_SERVICE_UUID=6e400001-b5a3-f393-e0a9-e50e24dcca9e
+BLE_WRITE_CHARACTERISTIC_UUID=6e400002-b5a3-f393-e0a9-e50e24dcca9e
+BLE_NOTIFY_CHARACTERISTIC_UUID=6e400003-b5a3-f393-e0a9-e50e24dcca9e
+```
+
+The real BLE receiver is prepared behind `BleShoppingListTransport`, but the BlueZ GATT server implementation is still marked with TODOs. On unsupported laptop OSes, `BLUETOOTH_MODE=ble` exits with: `Real BLE receiver requires Raspberry Pi/Linux BlueZ. Use BLUETOOTH_MODE=simulator on laptop.`
 
 ## Raspberry Pi Notes
 
 - Install Node.js 20 or newer.
 - Set `HOST=0.0.0.0`.
 - Set `CART_EDGE_PUBLIC_HOST` to the Pi hostname or LAN IP.
+- Set `BLUETOOTH_MODE=ble` only when the Raspberry Pi BlueZ implementation is ready.
 - Keep `STORAGE_DIR` on a writable local path.
 - Build with `npm run build`.
 - Use `deploy/raspberry-pi/carto-edge.service.example` as the systemd template.
-
-Bluetooth is intentionally simulated for now. The current local HTTP pairing flow is structured so a real Bluetooth receiver can call the same shopping-list receiver later.

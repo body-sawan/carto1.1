@@ -84,8 +84,12 @@ export interface PairingInfo {
   pairingCode: string;
   cartId: string;
   sessionId: string;
-  transport: "local-http";
-  receiveListUrl: string;
+  transport: "ble";
+  bluetoothDeviceName: string;
+  serviceUuid: string;
+  writeCharacteristicUuid: string;
+  notifyCharacteristicUuid: string;
+  receiveListUrl?: string;
   expiresAt: string;
 }
 

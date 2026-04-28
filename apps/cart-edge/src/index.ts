@@ -2,7 +2,6 @@ import http from "node:http";
 import path from "node:path";
 import cors from "cors";
 import express, { type Request, type Response } from "express";
-import { BluetoothSimulator } from "./bluetooth/bluetoothSimulator.js";
 import { PairingManager } from "./bluetooth/pairingManager.js";
 import { ShoppingListReceiver } from "./bluetooth/shoppingListReceiver.js";
 import { CartStateMachine } from "./core/cartStateMachine.js";
@@ -19,6 +18,9 @@ import { SnapshotBuilder } from "./realtime/snapshotBuilder.js";
 import { LocalStore } from "./storage/localStore.js";
 import { loadConfig } from "./system/env.js";
 import { logger } from "./system/logger.js";
+import { BleShoppingListTransport } from "./transports/bleShoppingListTransport.js";
+import { DevShoppingListTransport } from "./transports/devShoppingListTransport.js";
+import type { ShoppingListTransport } from "./transports/shoppingListTransport.js";
 
 class HttpError extends Error {
   constructor(public readonly status: number, message: string) {
@@ -37,7 +39,7 @@ async function main() {
   const paymentSimulator = new PaymentSimulator();
   const checkoutManager = new CheckoutManager(stateMachine, paymentSimulator);
   const store = new LocalStore(path.join(config.storageDir, "session.json"));
-  const pairingManager = new PairingManager(config.publicHost, config.port);
+  const pairingManager = new PairingManager(config);
   const sessionManager = new SessionManager(
     config.cartId,
     store,
@@ -52,7 +54,11 @@ async function main() {
 
   await sessionManager.boot();
 
-  const bluetooth = new BluetoothSimulator(new ShoppingListReceiver(sessionManager));
+  const shoppingListReceiver = new ShoppingListReceiver(sessionManager);
+  const devShoppingListTransport = new DevShoppingListTransport();
+  const shoppingListTransport: ShoppingListTransport = config.bluetoothMode === "ble"
+    ? new BleShoppingListTransport(config)
+    : devShoppingListTransport;
   const snapshotBuilder = new SnapshotBuilder();
   const app = express();
   app.use(cors());
@@ -61,6 +67,22 @@ async function main() {
   const server = http.createServer(app);
   const screenServer = new ScreenSocketServer(server, sessionManager);
   screenServer.start();
+  const makeIncomingShoppingListHandler = (requirePairingCode: boolean) => async (payload: unknown) => {
+    try {
+      await acceptShoppingListPayload(payload, sessionManager.current().pairing.pairingCode, shoppingListReceiver, requirePairingCode);
+      screenServer.broadcastSnapshot();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown shopping-list receive error";
+      await sessionManager.addAlert("error", `Shopping list receive failed: ${message}`);
+      screenServer.broadcastSnapshot();
+      throw error;
+    }
+  };
+  devShoppingListTransport.onShoppingListReceived(makeIncomingShoppingListHandler(false));
+  if (shoppingListTransport !== devShoppingListTransport) {
+    shoppingListTransport.onShoppingListReceived(makeIncomingShoppingListHandler(true));
+  }
+  await shoppingListTransport.start();
 
   app.get("/health", (_req, res) => {
     const session = sessionManager.current();
@@ -87,7 +109,7 @@ async function main() {
     }
     assertIncomingListBody(req.body);
 
-    const next = await sessionManager.receiveShoppingList(req.body);
+    const next = await shoppingListReceiver.receive(req.body);
     screenServer.broadcastSnapshot();
     res.json({ ok: true, session: next });
   }));
@@ -96,7 +118,10 @@ async function main() {
   app.post("/dev/snapshot", (_req, res) => res.json(snapshotBuilder.build(sessionManager.current())));
   app.get("/dev/catalog", (_req, res) => res.json({ products: catalog.all() }));
   app.post("/dev/session/reset", handle(respond(async () => sessionManager.startNewSession(), screenServer)));
-  app.post("/dev/bluetooth/list", handle(respond(async (req) => bluetooth.simulateIncomingShoppingList(req.body), screenServer)));
+  app.post("/dev/bluetooth/list", handle(respond(async (req) => {
+    await devShoppingListTransport.simulateIncomingShoppingList(req.body);
+    return sessionManager.current();
+  }, screenServer)));
   app.post("/dev/scan", handle(respond(async (req) => sessionManager.scanProduct(req.body), screenServer)));
   app.post("/dev/remove", handle(respond(async (req) => sessionManager.removeProduct(String(req.body.productId)), screenServer)));
   app.post("/dev/move", handle(respond(async (req) => sessionManager.moveTo(String(req.body.nodeId)), screenServer)));
@@ -111,14 +136,30 @@ async function main() {
       websocket: `ws://${config.publicHost}:${config.port}/ws`,
       cartId: config.cartId,
       storageDir: config.storageDir,
-      nodeEnv: config.nodeEnv
+      nodeEnv: config.nodeEnv,
+      bluetoothMode: config.bluetoothMode
     });
   });
 }
 
+async function acceptShoppingListPayload(
+  payload: unknown,
+  activePairingCode: string,
+  receiver: ShoppingListReceiver,
+  requirePairingCode: boolean
+) {
+  const pairingCode = assertIncomingListBody(payload);
+  if (requirePairingCode && !pairingCode) throw new HttpError(400, "Invalid body: pairingCode is required");
+  if (pairingCode && pairingCode !== activePairingCode) throw new HttpError(403, "Invalid pairing code");
+  return receiver.receive(payload);
+}
+
 function assertIncomingListBody(body: unknown) {
   if (!body || typeof body !== "object") throw new HttpError(400, "Invalid body: expected JSON object");
-  const list = body as { listId?: unknown; items?: unknown };
+  const list = body as { pairingCode?: unknown; listId?: unknown; items?: unknown };
+  if (list.pairingCode !== undefined && (typeof list.pairingCode !== "string" || list.pairingCode.length === 0)) {
+    throw new HttpError(400, "Invalid body: pairingCode must be a string when provided");
+  }
   if (typeof list.listId !== "string" || list.listId.length === 0) {
     throw new HttpError(400, "Invalid body: listId is required");
   }
@@ -136,6 +177,7 @@ function assertIncomingListBody(body: unknown) {
       throw new HttpError(400, `Invalid body: items[${index}].quantity is required`);
     }
   }
+  return list.pairingCode;
 }
 
 function respond(action: (req: Request) => Promise<unknown>, sockets: ScreenSocketServer) {

@@ -27,8 +27,9 @@ export class SessionManager {
   async boot(): Promise<CartSession> {
     const saved = await this.store.loadSession();
     if (saved && saved.state !== "SESSION_CLOSED") {
-      this.session = saved;
-      return saved;
+      this.session = this.ensureBlePairing(saved);
+      if (this.session !== saved) await this.persist();
+      return this.session;
     }
 
     this.session = this.createWaitingSession();
@@ -62,6 +63,25 @@ export class SessionManager {
       alerts: [{ id: "boot", level: "info", message: "Cart ready. Scan QR code to pair shopping list.", createdAt: now }],
       createdAt: now,
       updatedAt: now
+    };
+  }
+
+  private ensureBlePairing(session: CartSession): CartSession {
+    const pairing = session.pairing as CartSession["pairing"] & { transport?: string };
+    if (
+      pairing.transport === "ble" &&
+      pairing.bluetoothDeviceName &&
+      pairing.serviceUuid &&
+      pairing.writeCharacteristicUuid &&
+      pairing.notifyCharacteristicUuid
+    ) {
+      return session;
+    }
+
+    return {
+      ...session,
+      pairing: this.pairingManager.createPairing(this.cartId, session.sessionId),
+      updatedAt: new Date().toISOString()
     };
   }
 
@@ -148,6 +168,17 @@ export class SessionManager {
 
   async paymentFailure(): Promise<CartSession> {
     this.session = this.checkoutManager.paymentFailure(this.current());
+    await this.persist();
+    return this.session;
+  }
+
+  async addAlert(level: "info" | "warning" | "error" | "success", message: string): Promise<CartSession> {
+    const session = this.current();
+    this.session = {
+      ...session,
+      alerts: [...session.alerts, this.alert(level, message)],
+      updatedAt: new Date().toISOString()
+    };
     await this.persist();
     return this.session;
   }

@@ -1,30 +1,29 @@
-﻿import crypto from "node:crypto";
+import crypto from "node:crypto";
 import type { PairingInfo } from "@carto/shared";
+import type { EdgeConfig } from "../system/env.js";
 
 export class PairingManager {
-  constructor(private readonly publicHost: string, private readonly port: number) {}
+  constructor(private readonly config: EdgeConfig) {}
 
   createPairing(cartId: string, sessionId: string): PairingInfo {
     const pairingCode = crypto.randomInt(100000, 999999).toString();
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
-    const receiveListUrl = `http://${this.publicHost}:${this.port}/pairing/${pairingCode}/list`;
     const payload = {
       cartId,
       sessionId,
       pairingCode,
-      transport: "local-http" as const,
-      receiveListUrl,
+      transport: "ble" as const,
+      bluetoothDeviceName: this.config.bluetoothDeviceName,
+      serviceUuid: this.config.bleServiceUuid,
+      writeCharacteristicUuid: this.config.bleWriteCharacteristicUuid,
+      notifyCharacteristicUuid: this.config.bleNotifyCharacteristicUuid,
       expiresAt
     };
+
     return {
-      cartId,
-      sessionId,
-      pairingCode,
-      transport: "local-http",
-      receiveListUrl,
-      expiresAt,
+      ...payload,
+      receiveListUrl: `http://${this.config.publicHost}:${this.config.port}/pairing/${pairingCode}/list`,
       qrPayload: JSON.stringify(payload)
     };
   }
 }
-

@@ -14,6 +14,11 @@ Environment=HOST=0.0.0.0
 Environment=CART_ID=cart-01
 Environment=CART_EDGE_PUBLIC_HOST=<PI_HOST_OR_IP>
 Environment=STORAGE_DIR=<PROJECT_PATH>/data
+Environment=BLUETOOTH_MODE=ble
+Environment=BLUETOOTH_DEVICE_NAME=Carto-cart-01
+Environment=BLE_SERVICE_UUID=6e400001-b5a3-f393-e0a9-e50e24dcca9e
+Environment=BLE_WRITE_CHARACTERISTIC_UUID=6e400002-b5a3-f393-e0a9-e50e24dcca9e
+Environment=BLE_NOTIFY_CHARACTERISTIC_UUID=6e400003-b5a3-f393-e0a9-e50e24dcca9e
 ExecStart=/usr/bin/npm run start -w @carto/cart-edge
 Restart=always
 RestartSec=5
