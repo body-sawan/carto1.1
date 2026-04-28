@@ -1,8 +1,9 @@
 import { View, Text, StyleSheet } from "react-native";
 import type { CartSnapshot } from "../store/cartUiStore";
 
-export function CartStatusBar({ connected, snapshot }: { connected: boolean; snapshot: CartSnapshot | null }) {
+export function CartStatusBar({ connected, snapshot, lastUpdateAt }: { connected: boolean; snapshot: CartSnapshot | null; lastUpdateAt: string | null }) {
   const latestAlert = snapshot?.alerts.at(-1);
+  const lastUpdate = lastUpdateAt ? new Date(lastUpdateAt).toLocaleTimeString() : "never";
   return (
     <View style={styles.bar}>
       <View style={styles.group}>
@@ -10,7 +11,7 @@ export function CartStatusBar({ connected, snapshot }: { connected: boolean; sna
         <Text style={styles.pill}>{connected ? "EDGE CONNECTED" : "OFFLINE"}</Text>
         <Text style={styles.state}>{snapshot?.state ?? "BOOTING"}</Text>
       </View>
-      <Text style={styles.alert} numberOfLines={1}>{latestAlert?.message ?? "Waiting for edge snapshot."}</Text>
+      <Text style={styles.alert} numberOfLines={1}>{latestAlert?.message ?? "Waiting for edge snapshot."} Last update: {lastUpdate}</Text>
     </View>
   );
 }

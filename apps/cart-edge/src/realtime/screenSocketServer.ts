@@ -13,7 +13,18 @@ export class ScreenSocketServer {
   constructor(private readonly httpServer: Server, private readonly sessionManager: SessionManager) {}
 
   start() {
-    const server = new WebSocketServer({ server: this.httpServer, path: "/screen" });
+    const server = new WebSocketServer({ noServer: true });
+    this.httpServer.on("upgrade", (request, socket, head) => {
+      const pathname = new URL(request.url ?? "", "http://localhost").pathname;
+      if (pathname !== "/ws" && pathname !== "/screen") {
+        socket.destroy();
+        return;
+      }
+      server.handleUpgrade(request, socket, head, (websocket) => {
+        server.emit("connection", websocket, request);
+      });
+    });
+
     server.on("connection", (socket) => {
       this.clients.add(socket);
       logger.info("Screen connected", { clients: this.clients.size });
@@ -34,6 +45,10 @@ export class ScreenSocketServer {
     });
 
     setInterval(() => this.broadcast("heartbeat", { ok: true }), 5000);
+  }
+
+  clientCount() {
+    return this.clients.size;
   }
 
   broadcastSnapshot() {

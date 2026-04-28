@@ -1,0 +1,22 @@
+[Unit]
+Description=Carto smart cart edge service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=<PI_USER>
+Group=<PI_GROUP>
+WorkingDirectory=<PROJECT_PATH>
+Environment=NODE_ENV=production
+Environment=PORT=4000
+Environment=HOST=0.0.0.0
+Environment=CART_ID=cart-01
+Environment=CART_EDGE_PUBLIC_HOST=<PI_HOST_OR_IP>
+Environment=STORAGE_DIR=<PROJECT_PATH>/data
+ExecStart=/usr/bin/npm run start -w @carto/cart-edge
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

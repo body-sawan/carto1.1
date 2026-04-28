@@ -1,16 +1,23 @@
 # Carto: AI-Powered Smart Shopping Cart System
 
-Carto is a production-minded foundation for the smart cart side of the graduation project. The cart edge is the source of truth. The tablet/screen only displays snapshots and sends user commands.
+Production-ready base for the smart cart software only. There is no admin dashboard, cloud backend, or external shopping-list app in this repo yet.
 
-## Apps
+## Architecture Rule
 
-- `apps/cart-edge`: Node.js + TypeScript edge service, WebSocket server, local state, receipt/list/navigation/payment logic, JSON persistence, and simulator HTTP endpoints.
-- `apps/cart-screen`: Expo React Native screen simulator. It connects to the edge over WebSocket and renders full snapshots only.
-- `packages/shared`: shared TypeScript domain and protocol types used by both apps.
+`cart-edge` is the source of truth. `cart-screen` is display-only.
 
-## Setup
+All business logic, calculations, validation, cart state changes, receipt updates, route updates, shopping-list status updates, checkout, and payment logic live in `apps/cart-edge`.
 
-```bash
+## Project Structure
+
+- `apps/cart-edge`: Node.js edge service, HTTP API, WebSocket server, state machine, receipt/list/route/payment logic, JSON persistence.
+- `apps/cart-screen`: Expo React Native display. It connects to edge WebSocket and renders received `cart.snapshot` messages.
+- `packages/shared`: shared TypeScript protocol and domain types.
+- `deploy/raspberry-pi`: Raspberry Pi deployment preparation files.
+
+## Install And Run
+
+```powershell
 npm install
 npm run dev:edge
 npm run dev:screen
@@ -18,54 +25,159 @@ npm run dev:screen
 
 Root scripts:
 
-- `npm run dev:edge`: starts the cart edge server.
-- `npm run dev:screen`: starts the Expo screen simulator.
-- `npm run typecheck`: typechecks all workspaces.
-- `npm run build`: builds `packages/shared` first, then `apps/cart-edge`.
+- `npm run dev:edge`: run the edge service.
+- `npm run dev:screen`: run the Expo screen.
+- `npm run dev`: run the edge service for local API work.
+- `npm run typecheck`: typecheck all workspaces.
+- `npm run build`: build shared types and the edge app.
 
-Default edge URLs:
+Edge package scripts:
 
-- HTTP simulator API: `http://localhost:4000`
-- Screen WebSocket: `ws://localhost:4000/screen`
+- `npm run dev -w @carto/cart-edge`
+- `npm run build -w @carto/cart-edge`
+- `npm run start -w @carto/cart-edge`
 
-For Expo Web, open the URL printed by Expo, usually `http://localhost:8081`.
+## Environment
 
-## Simulator Flow
+Copy `apps/cart-edge/.env.example` for deployment reference. Defaults are safe if variables are missing.
 
-Start the edge and screen, then call these HTTP endpoints:
-
-```bash
-curl -X POST http://localhost:4000/dev/bluetooth/list `
-  -H "Content-Type: application/json" `
-  -d "{\"listId\":\"list-001\",\"source\":\"external-web-app\",\"items\":[{\"productId\":\"p_milk\",\"name\":\"Milk 1L\",\"quantity\":2},{\"productId\":\"p_bread\",\"name\":\"Bread\",\"quantity\":1}],\"createdAt\":\"2026-04-28T00:00:00.000Z\"}"
-
-curl -X POST http://localhost:4000/dev/scan -H "Content-Type: application/json" -d "{\"barcode\":\"622100000001\"}"
-curl -X POST http://localhost:4000/dev/scan -H "Content-Type: application/json" -d "{\"barcode\":\"622100000002\"}"
-curl -X POST http://localhost:4000/dev/remove -H "Content-Type: application/json" -d "{\"productId\":\"p_milk\"}"
-curl -X POST http://localhost:4000/dev/move -H "Content-Type: application/json" -d "{\"nodeId\":\"dairy_01\"}"
-curl -X POST http://localhost:4000/dev/checkout
-curl -X POST http://localhost:4000/dev/payment/success
-curl -X POST http://localhost:4000/dev/session/reset
+```env
+PORT=4000
+HOST=0.0.0.0
+CART_ID=cart-01
+CART_EDGE_PUBLIC_HOST=localhost
+STORAGE_DIR=./data
+NODE_ENV=development
 ```
 
-PowerShell users can also use `Invoke-RestMethod` with the same JSON bodies.
+The edge listens on `HOST` and `PORT`. QR pairing uses `CART_EDGE_PUBLIC_HOST` and `PORT`, so set `CART_EDGE_PUBLIC_HOST` to the Pi hostname or IP during device testing.
 
-## Edge Principles
+The screen WebSocket URL can be set with:
 
-- The edge owns all business logic, totals, route updates, validation, and payment state.
-- The screen updates from `cart.snapshot` messages and requests a snapshot after reconnect.
-- The screen imports shared snapshot/protocol types, but it does not validate products, calculate totals, or make cart decisions.
-- Every WebSocket message is typed, versioned, sequenced, timestamped, and cart/session scoped.
-- JSON storage is isolated behind `LocalStore` so SQLite can replace it later.
+```env
+EXPO_PUBLIC_CART_EDGE_WS_URL=ws://localhost:4000/ws
+```
 
-## Current Simulator Endpoints
+## Standard Endpoints
 
-- `POST /dev/bluetooth/list`: simulate a Bluetooth shopping list payload.
-- `POST /dev/scan`: simulate barcode or product scan with `{ "barcode": "..." }` or `{ "productId": "..." }`.
-- `POST /dev/remove`: simulate product removal with `{ "productId": "..." }`.
-- `POST /dev/move`: move cart position with `{ "nodeId": "..." }`.
-- `POST /dev/checkout`: start checkout.
-- `POST /dev/payment/success`: force payment success.
-- `POST /dev/payment/failure`: force payment failure.
-- `POST /dev/session/reset`: start a fresh QR waiting session for another demo.
-- `POST /dev/snapshot`: return the current edge snapshot.
+- `GET /health`
+- `GET /pairing/current`
+- `POST /pairing/:pairingCode/list`
+
+Development endpoints:
+
+- `GET /dev/snapshot`
+- `GET /dev/catalog`
+- `POST /dev/session/reset`
+- `POST /dev/bluetooth/list`
+- `POST /dev/scan`
+- `POST /dev/remove`
+- `POST /dev/move`
+- `POST /dev/checkout/start`
+- `POST /dev/payment/success`
+- `POST /dev/payment/failure`
+
+Backward-compatible endpoints currently kept:
+
+- `POST /dev/snapshot`
+- `POST /dev/checkout`
+
+## Demo Flow
+
+Start edge and screen in separate terminals:
+
+```powershell
+npm run dev:edge
+npm run dev:screen
+```
+
+Health:
+
+```powershell
+Invoke-RestMethod http://localhost:4000/health
+```
+
+Get active pairing:
+
+```powershell
+$pairing = Invoke-RestMethod http://localhost:4000/pairing/current
+$pairing
+```
+
+Send a shopping list to the QR pairing endpoint:
+
+```powershell
+$list = @{
+  listId = "list-001"
+  source = "local-http"
+  items = @(
+    @{ productId = "p_milk"; name = "Milk 1L"; quantity = 2 },
+    @{ productId = "p_bread"; name = "Bread"; quantity = 1 }
+  )
+  createdAt = (Get-Date).ToUniversalTime().ToString("o")
+} | ConvertTo-Json -Depth 5
+
+Invoke-RestMethod -Method Post -Uri $pairing.receiveListUrl -ContentType "application/json" -Body $list
+```
+
+Scan products:
+
+```powershell
+Invoke-RestMethod -Method Post http://localhost:4000/dev/scan -ContentType "application/json" -Body '{"barcode":"622100000001"}'
+Start-Sleep -Milliseconds 900
+Invoke-RestMethod -Method Post http://localhost:4000/dev/scan -ContentType "application/json" -Body '{"productId":"p_bread"}'
+```
+
+Remove a product:
+
+```powershell
+Invoke-RestMethod -Method Post http://localhost:4000/dev/remove -ContentType "application/json" -Body '{"productId":"p_milk"}'
+```
+
+Move the cart:
+
+```powershell
+Invoke-RestMethod -Method Post http://localhost:4000/dev/move -ContentType "application/json" -Body '{"nodeId":"dairy_01"}'
+```
+
+Checkout and payment:
+
+```powershell
+Invoke-RestMethod -Method Post http://localhost:4000/dev/checkout/start
+Invoke-RestMethod -Method Post http://localhost:4000/dev/payment/success
+```
+
+Reset the session:
+
+```powershell
+Invoke-RestMethod -Method Post http://localhost:4000/dev/session/reset
+```
+
+## QR Pairing Test
+
+`GET /pairing/current` returns:
+
+```json
+{
+  "cartId": "cart-01",
+  "sessionId": "...",
+  "pairingCode": "123456",
+  "transport": "local-http",
+  "receiveListUrl": "http://localhost:4000/pairing/123456/list",
+  "expiresAt": "2026-04-29T12:00:00.000Z",
+  "qrPayload": "{\"cartId\":\"cart-01\",...}"
+}
+```
+
+The QR payload is the JSON string form of the pairing object without wrapper metadata. During development the screen also shows the receive URL as text.
+
+## Raspberry Pi Notes
+
+- Install Node.js 20 or newer.
+- Set `HOST=0.0.0.0`.
+- Set `CART_EDGE_PUBLIC_HOST` to the Pi hostname or LAN IP.
+- Keep `STORAGE_DIR` on a writable local path.
+- Build with `npm run build`.
+- Use `deploy/raspberry-pi/carto-edge.service.example` as the systemd template.
+
+Bluetooth is intentionally simulated for now. The current local HTTP pairing flow is structured so a real Bluetooth receiver can call the same shopping-list receiver later.

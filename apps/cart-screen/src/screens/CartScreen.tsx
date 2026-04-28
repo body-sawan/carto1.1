@@ -12,10 +12,11 @@ export function CartScreen() {
   const client = useCartSocket();
   const snapshot = useCartUiStore((state) => state.snapshot);
   const connected = useCartUiStore((state) => state.connected);
+  const lastUpdateAt = useCartUiStore((state) => state.lastUpdateAt);
 
   return (
     <SafeAreaView style={styles.root}>
-      <CartStatusBar connected={connected} snapshot={snapshot} />
+      <CartStatusBar connected={connected} snapshot={snapshot} lastUpdateAt={lastUpdateAt} />
       <ScrollView contentContainerStyle={styles.scroll}>
         <View style={styles.top}>
           <QRCodePanel snapshot={snapshot} />

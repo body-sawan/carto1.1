@@ -82,6 +82,10 @@ export interface Totals {
 export interface PairingInfo {
   qrPayload: string;
   pairingCode: string;
+  cartId: string;
+  sessionId: string;
+  transport: "local-http";
+  receiveListUrl: string;
   expiresAt: string;
 }
 

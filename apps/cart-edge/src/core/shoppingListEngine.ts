@@ -4,8 +4,8 @@ import type { ProductCatalog } from "../products/productCatalog.js";
 
 const incomingListSchema = z.object({
   listId: z.string().min(1),
-  source: z.string().min(1),
-  createdAt: z.string().datetime(),
+  source: z.string().min(1).default("local-http"),
+  createdAt: z.string().datetime().default(() => new Date().toISOString()),
   items: z.array(z.object({
     productId: z.string().min(1),
     name: z.string().min(1),
@@ -34,7 +34,7 @@ export class ShoppingListEngine {
     return list.map((item) => {
       const inCartQuantity = quantities.get(item.productId) ?? 0;
       const status = inCartQuantity <= 0
-        ? item.status === "IN_CART" || item.status === "PARTIAL" ? "REMOVED" : "PENDING"
+        ? "PENDING"
         : inCartQuantity >= item.quantity ? "IN_CART" : "PARTIAL";
       return { ...item, inCartQuantity, status };
     });

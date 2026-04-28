@@ -9,7 +9,7 @@ export class RoutePlanner {
 
   plan(currentNodeId: string, list: ShoppingListItem[]): Route {
     const targets = list
-      .filter((item) => item.status === "PENDING" || item.status === "PARTIAL" || item.status === "REMOVED")
+      .filter((item) => item.status === "PENDING" || item.status === "PARTIAL")
       .map((item) => this.catalog.findByProductId(item.productId)?.mapNodeId)
       .filter((nodeId): nodeId is string => Boolean(nodeId));
 

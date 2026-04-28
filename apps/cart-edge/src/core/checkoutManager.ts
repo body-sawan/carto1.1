@@ -9,6 +9,7 @@ export class CheckoutManager {
   ) {}
 
   start(session: CartSession): CartSession {
+    if (session.state !== "SHOPPING") throw new Error(`Checkout can only start from SHOPPING, current state is ${session.state}`);
     if (session.cartItems.length === 0) throw new Error("Cannot checkout with an empty cart");
     let state = this.stateMachine.transition(session.state, "CHECKOUT_PENDING");
     state = this.stateMachine.transition(state, "WAITING_PAYMENT");
@@ -22,10 +23,8 @@ export class CheckoutManager {
   }
 
   paymentSuccess(session: CartSession): CartSession {
-    if (session.state !== "WAITING_PAYMENT" && session.state !== "PAYMENT_FAILED") throw new Error("Payment is not pending");
-    const state = session.state === "PAYMENT_FAILED"
-      ? this.stateMachine.transition("WAITING_PAYMENT", "PAID")
-      : this.stateMachine.transition(session.state, "PAID");
+    if (session.state !== "WAITING_PAYMENT") throw new Error(`Payment success requires WAITING_PAYMENT, current state is ${session.state}`);
+    const state = this.stateMachine.transition(session.state, "PAID");
     return {
       ...session,
       state,

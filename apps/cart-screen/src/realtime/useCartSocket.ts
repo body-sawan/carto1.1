@@ -3,7 +3,7 @@ import type { CartSnapshot, ProtocolMessage } from "@carto/shared";
 import { CartSocketClient } from "./socketClient";
 import { useCartUiStore } from "../store/cartUiStore";
 
-const WS_URL = process.env.EXPO_PUBLIC_CART_EDGE_WS_URL ?? "ws://localhost:4000/screen";
+const WS_URL = process.env.EXPO_PUBLIC_CART_EDGE_WS_URL ?? "ws://localhost:4000/ws";
 
 export function useCartSocket() {
   const setSnapshot = useCartUiStore((state) => state.setSnapshot);

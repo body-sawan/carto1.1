@@ -37,6 +37,7 @@ export class SessionManager {
   }
 
   async startNewSession(): Promise<CartSession> {
+    await this.store.clearSession();
     this.session = this.createWaitingSession();
     await this.persist();
     return this.session;
@@ -72,6 +73,9 @@ export class SessionManager {
   async receiveShoppingList(input: unknown): Promise<CartSession> {
     const incoming = this.listEngine.validateIncoming(input) as IncomingShoppingList;
     const session = this.current();
+    if (session.state !== "WAITING_FOR_LIST") {
+      throw new Error(`Cart is not waiting for a shopping list in state ${session.state}`);
+    }
     const shoppingList = this.listEngine.createItems(incoming);
     this.session = {
       ...session,

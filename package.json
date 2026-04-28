@@ -10,6 +10,7 @@
   "scripts": {
     "dev:edge": "npm run dev -w @carto/cart-edge",
     "dev:screen": "npm run dev -w @carto/cart-screen",
+    "dev": "npm run dev:edge",
     "build": "npm run build -w @carto/shared && npm run build -w @carto/cart-edge",
     "typecheck": "npm run typecheck --workspaces",
     "lint": "npm run lint --workspaces"
