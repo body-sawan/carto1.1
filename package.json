@@ -1,0 +1,20 @@
+{
+  "name": "carto",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/cart-edge",
+    "apps/cart-screen",
+    "packages/shared"
+  ],
+  "scripts": {
+    "dev:edge": "npm run dev -w @carto/cart-edge",
+    "dev:screen": "npm run dev -w @carto/cart-screen",
+    "build": "npm run build -w @carto/shared && npm run build -w @carto/cart-edge",
+    "typecheck": "npm run typecheck --workspaces",
+    "lint": "npm run lint --workspaces"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

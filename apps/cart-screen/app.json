@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "name": "Carto Screen",
+    "slug": "carto-screen",
+    "version": "0.1.0",
+    "orientation": "landscape",
+    "platforms": ["ios", "android", "web"],
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}
