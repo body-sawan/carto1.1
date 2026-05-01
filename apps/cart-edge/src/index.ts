@@ -127,6 +127,7 @@ async function main() {
   app.post("/dev/move", handle(respond(async (req) => sessionManager.moveTo(String(req.body.nodeId)), screenServer)));
   app.post("/dev/checkout/start", handle(respond(async () => sessionManager.startCheckout(), screenServer)));
   app.post("/dev/checkout", handle(respond(async () => sessionManager.startCheckout(), screenServer)));
+  app.post("/dev/checkout/cancel", handle(respond(async () => sessionManager.cancelCheckout(), screenServer)));
   app.post("/dev/payment/success", handle(respond(async () => sessionManager.paymentSuccess(), screenServer)));
   app.post("/dev/payment/failure", handle(respond(async () => sessionManager.paymentFailure(), screenServer)));
 

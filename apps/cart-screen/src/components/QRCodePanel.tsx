@@ -6,26 +6,53 @@ export function QRCodePanel({ snapshot }: { snapshot: CartSnapshot | null }) {
   const pairing = snapshot?.pairing;
   return (
     <View style={styles.panel}>
-      <Text style={styles.title}>Pair Shopping List</Text>
-      <View style={styles.qrBox}>
-        {pairing ? <QRCode value={pairing.qrPayload} size={156} /> : <Text>Starting...</Text>}
+      <View style={styles.copy}>
+        <Text style={styles.title}>Scan to Start Shopping</Text>
+        <Text style={styles.subtitle}>Scan this QR code from your phone to send your shopping list.</Text>
       </View>
-      <Text style={styles.code}>{pairing?.pairingCode ?? "------"}</Text>
-      <Text style={styles.meta}>{pairing?.bluetoothDeviceName ?? "Waiting for BLE device"}</Text>
-      <Text style={styles.uuid} numberOfLines={1}>Service: {pairing?.serviceUuid ?? "-"}</Text>
-      <Text style={styles.uuid} numberOfLines={1}>Write: {pairing?.writeCharacteristicUuid ?? "-"}</Text>
-      {pairing?.receiveListUrl ? <Text style={styles.url} numberOfLines={2}>Dev HTTP fallback: {pairing.receiveListUrl}</Text> : null}
-      <Text style={styles.meta}>State: {snapshot?.state ?? "BOOTING"}</Text>
+      <View style={styles.qrBox}>
+        {pairing ? <QRCode value={pairing.qrPayload} size={236} /> : <Text style={styles.loading}>Starting pairing...</Text>}
+      </View>
+      <View style={styles.codeBlock}>
+        <Text style={styles.codeLabel}>Pairing Code</Text>
+        <Text style={styles.code}>{pairing?.pairingCode ?? "------"}</Text>
+      </View>
+      {pairing?.bluetoothDeviceName ? <Text style={styles.meta}>Bluetooth: {pairing.bluetoothDeviceName}</Text> : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  panel: { backgroundColor: "#ffffff", borderRadius: 8, padding: 16, gap: 12, alignItems: "center" },
-  title: { fontSize: 18, fontWeight: "700", color: "#152238" },
-  qrBox: { width: 180, height: 180, alignItems: "center", justifyContent: "center", backgroundColor: "#f5f7fb", borderRadius: 8 },
-  code: { fontSize: 28, fontWeight: "800", letterSpacing: 0, color: "#12715b" },
-  uuid: { fontSize: 10, color: "#5d6b82", textAlign: "center", maxWidth: 260 },
-  url: { fontSize: 11, color: "#5d6b82", textAlign: "center" },
-  meta: { fontSize: 13, color: "#5d6b82" }
+  panel: {
+    width: "100%",
+    maxWidth: 560,
+    backgroundColor: "#ffffff",
+    borderRadius: 24,
+    padding: 34,
+    gap: 24,
+    alignItems: "center",
+    shadowColor: "#132033",
+    shadowOpacity: 0.12,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 14 },
+    elevation: 8
+  },
+  copy: { alignItems: "center", gap: 8 },
+  title: { fontSize: 32, fontWeight: "900", color: "#142033", textAlign: "center" },
+  subtitle: { maxWidth: 420, fontSize: 16, lineHeight: 23, color: "#64748b", textAlign: "center" },
+  qrBox: {
+    width: 284,
+    height: 284,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#f8fafc",
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "#e2e8f0"
+  },
+  loading: { color: "#64748b", fontWeight: "700" },
+  codeBlock: { alignItems: "center", gap: 4 },
+  codeLabel: { fontSize: 12, fontWeight: "900", color: "#64748b", textTransform: "uppercase" },
+  code: { fontSize: 36, fontWeight: "900", letterSpacing: 0, color: "#047857" },
+  meta: { fontSize: 14, color: "#64748b", fontWeight: "700" }
 });

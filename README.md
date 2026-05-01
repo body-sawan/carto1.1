@@ -145,6 +145,18 @@ npm run dev:edge
 npm run dev:screen
 ```
 
+## Cart Screen UI Flow
+
+The Expo cart screen renders only the latest snapshot received from `cart-edge`.
+
+1. Start the edge service and the screen app.
+2. While the snapshot state is `WAITING_FOR_LIST`, the screen shows a dedicated QR-only pairing view.
+3. Send a shopping list through BLE or the development transport.
+4. `cart-edge` validates and stores the list, then broadcasts a new snapshot with state `SHOPPING`.
+5. The QR view disappears and the tablet shopping layout appears with three panels: shopping list, store map placeholder, and cart totals.
+
+The screen does not calculate totals, validate products, update list status, or keep shopping-list state locally. Those values must come from `cart-edge` in the snapshot.
+
 Health:
 
 ```powershell

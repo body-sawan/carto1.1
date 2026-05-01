@@ -9,6 +9,8 @@
   ],
   "scripts": {
     "dev:edge": "npm run dev -w @carto/cart-edge",
+    "dev:cli": "npm run dev:cli -w @carto/cart-edge",
+    "cart:cli": "npm run dev:cli",
     "dev:screen": "npm run dev -w @carto/cart-screen",
     "dev": "npm run dev:edge",
     "build": "npm run build -w @carto/shared && npm run build -w @carto/cart-edge",
