@@ -172,6 +172,12 @@ export class SessionManager {
     return this.session;
   }
 
+  async retryPayment(): Promise<CartSession> {
+    this.session = this.checkoutManager.retry(this.current());
+    await this.persist();
+    return this.session;
+  }
+
   async addAlert(level: "info" | "warning" | "error" | "success", message: string): Promise<CartSession> {
     const session = this.current();
     this.session = {

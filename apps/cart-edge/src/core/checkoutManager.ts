@@ -45,6 +45,17 @@ export class CheckoutManager {
     };
   }
 
+  retry(session: CartSession): CartSession {
+    if (session.state !== "PAYMENT_FAILED") throw new Error(`Payment retry requires PAYMENT_FAILED, current state is ${session.state}`);
+    return {
+      ...session,
+      state: this.stateMachine.transition(session.state, "WAITING_PAYMENT"),
+      payment: this.paymentSimulator.start(session.totals.total),
+      alerts: [...session.alerts, alert("info", "Retrying payment.")],
+      updatedAt: new Date().toISOString()
+    };
+  }
+
   cancel(session: CartSession): CartSession {
     if (session.state !== "WAITING_PAYMENT" && session.state !== "CHECKOUT_PENDING") throw new Error("Checkout is not active");
     return {

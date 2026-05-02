@@ -20,6 +20,8 @@ export type ScreenMessageType =
   | "screen.request_snapshot"
   | "command.checkout_start"
   | "command.payment_confirm"
+  | "command.payment_retry"
+  | "command.session_reset"
   | "command.cancel_checkout";
 
 export interface ProtocolMessage<TType extends string = string, TPayload = unknown> {

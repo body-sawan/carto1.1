@@ -1,9 +1,16 @@
-import { ScrollView, View, Text, StyleSheet } from "react-native";
+import { Pressable, ScrollView, View, Text, StyleSheet } from "react-native";
 import type { CartSnapshot } from "../store/cartUiStore";
 import { TotalsCard, formatMoney } from "./TotalsCard";
 
-export function CartItemsPanel({ snapshot }: { snapshot: CartSnapshot | null }) {
+interface CartItemsPanelProps {
+  snapshot: CartSnapshot | null;
+  connected: boolean;
+  onCheckout: () => void;
+}
+
+export function CartItemsPanel({ snapshot, connected, onCheckout }: CartItemsPanelProps) {
   const cartItems = snapshot?.cartItems ?? [];
+  const checkoutDisabled = !connected || !cartItems.length || snapshot?.state !== "SHOPPING";
 
   return (
     <View style={styles.panel}>
@@ -36,6 +43,20 @@ export function CartItemsPanel({ snapshot }: { snapshot: CartSnapshot | null }) 
         ) : null}
       </ScrollView>
       <TotalsCard totals={snapshot?.totals} />
+      <Pressable
+        accessibilityRole="button"
+        disabled={checkoutDisabled}
+        onPress={onCheckout}
+        style={({ pressed }) => [
+          styles.checkoutButton,
+          checkoutDisabled ? styles.checkoutButtonDisabled : null,
+          pressed && !checkoutDisabled ? styles.checkoutButtonPressed : null
+        ]}
+      >
+        <Text style={[styles.checkoutButtonText, checkoutDisabled ? styles.checkoutButtonTextDisabled : null]}>
+          Checkout
+        </Text>
+      </Pressable>
     </View>
   );
 }
@@ -84,5 +105,17 @@ const styles = StyleSheet.create({
     padding: 18
   },
   emptyTitle: { color: "#142033", fontSize: 16, fontWeight: "900", textAlign: "center" },
-  emptySub: { color: "#64748b", fontSize: 13, fontWeight: "700", textAlign: "center", marginTop: 6 }
+  emptySub: { color: "#64748b", fontSize: 13, fontWeight: "700", textAlign: "center", marginTop: 6 },
+  checkoutButton: {
+    minHeight: 56,
+    borderRadius: 12,
+    backgroundColor: "#2563eb",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 18
+  },
+  checkoutButtonPressed: { backgroundColor: "#1d4ed8" },
+  checkoutButtonDisabled: { backgroundColor: "#cbd5e1" },
+  checkoutButtonText: { color: "#ffffff", fontSize: 17, fontWeight: "900" },
+  checkoutButtonTextDisabled: { color: "#64748b" }
 });

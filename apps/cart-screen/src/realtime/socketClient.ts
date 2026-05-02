@@ -48,6 +48,18 @@ export class CartSocketClient {
     this.socket.send(JSON.stringify(message));
   }
 
+  startCheckout() {
+    this.send("command.checkout_start", {});
+  }
+
+  retryPayment() {
+    this.send("command.payment_retry", {});
+  }
+
+  resetSession() {
+    this.send("command.session_reset", {});
+  }
+
   private scheduleReconnect() {
     if (this.reconnectTimer) return;
     this.reconnectTimer = setTimeout(() => {

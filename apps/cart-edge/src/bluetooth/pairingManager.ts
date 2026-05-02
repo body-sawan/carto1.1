@@ -19,11 +19,15 @@ export class PairingManager {
       notifyCharacteristicUuid: this.config.bleNotifyCharacteristicUuid,
       expiresAt
     };
+    const qrPayload = {
+      cartId,
+      pairingCode
+    };
 
     return {
       ...payload,
       receiveListUrl: `http://${this.config.publicHost}:${this.config.port}/pairing/${pairingCode}/list`,
-      qrPayload: JSON.stringify(payload)
+      qrPayload: JSON.stringify(qrPayload)
     };
   }
 }

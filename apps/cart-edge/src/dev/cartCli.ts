@@ -198,7 +198,7 @@ async function paySuccess() {
     return;
   }
 
-  console.log("Payment successful. Cart is paid.");
+  console.log("Payment successful.");
 }
 
 async function payFail() {

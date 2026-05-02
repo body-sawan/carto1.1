@@ -81,6 +81,14 @@ export class ScreenSocketServer {
         await this.sessionManager.paymentSuccess();
         this.broadcastSnapshot();
         return;
+      case "command.payment_retry":
+        await this.sessionManager.retryPayment();
+        this.broadcastSnapshot();
+        return;
+      case "command.session_reset":
+        await this.sessionManager.startNewSession();
+        this.broadcastSnapshot();
+        return;
       case "command.cancel_checkout":
         await this.sessionManager.cancelCheckout();
         this.broadcastSnapshot();
