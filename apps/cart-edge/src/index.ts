@@ -7,8 +7,8 @@ import { ShoppingListReceiver } from "./bluetooth/shoppingListReceiver.js";
 import { CartStateMachine } from "./core/cartStateMachine.js";
 import { CheckoutManager } from "./core/checkoutManager.js";
 import { ReceiptEngine } from "./core/receiptEngine.js";
-import { SessionManager } from "./core/sessionManager.js";
-import { ShoppingListEngine } from "./core/shoppingListEngine.js";
+import { CartSessionStateError, SessionManager } from "./core/sessionManager.js";
+import { ShoppingListEngine, ShoppingListValidationError } from "./core/shoppingListEngine.js";
 import { RoutePlanner } from "./navigation/routePlanner.js";
 import { PositionSimulator } from "./navigation/positionSimulator.js";
 import { PaymentSimulator } from "./payments/paymentSimulator.js";
@@ -21,9 +21,14 @@ import { logger } from "./system/logger.js";
 import { BleShoppingListTransport } from "./transports/bleShoppingListTransport.js";
 import { DevShoppingListTransport } from "./transports/devShoppingListTransport.js";
 import type { ShoppingListTransport } from "./transports/shoppingListTransport.js";
+import type { CartAckResponse, CartSession, ShoppingListPayload } from "@carto/shared";
 
 class HttpError extends Error {
-  constructor(public readonly status: number, message: string) {
+  constructor(
+    public readonly status: number,
+    public readonly errorCode: string,
+    message: string
+  ) {
     super(message);
   }
 }
@@ -69,7 +74,7 @@ async function main() {
   screenServer.start();
   const makeIncomingShoppingListHandler = (requirePairingCode: boolean) => async (payload: unknown) => {
     try {
-      await acceptShoppingListPayload(payload, sessionManager.current().pairing.pairingCode, shoppingListReceiver, requirePairingCode);
+      await acceptShoppingListPayload(payload, sessionManager.current(), shoppingListReceiver, requirePairingCode);
       screenServer.broadcastSnapshot();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown shopping-list receive error";
@@ -101,23 +106,41 @@ async function main() {
 
   app.post("/pairing/:pairingCode/list", handle(async (req, res) => {
     const session = sessionManager.current();
-    if (req.params.pairingCode !== session.pairing.pairingCode) {
-      throw new HttpError(403, "Invalid pairing code");
-    }
-    if (session.state !== "WAITING_FOR_LIST") {
-      throw new HttpError(409, `Cart is not waiting for a shopping list in state ${session.state}`);
-    }
-    assertIncomingListBody(req.body);
+    const pairingCode = routeParam(req.params.pairingCode);
+    assertPairingCodeAndExpiry(session, pairingCode);
 
     const next = await shoppingListReceiver.receive(req.body);
     screenServer.broadcastSnapshot();
-    res.json({ ok: true, session: next });
+    const receivedList = req.body as ShoppingListPayload;
+    const response: CartAckResponse = {
+      ok: true,
+      cartId: next.cartId,
+      sessionId: next.sessionId,
+      receivedListId: receivedList.listId,
+      itemCount: receivedList.items.length,
+      status: "list_received"
+    };
+    res.json(response);
   }));
 
   app.get("/dev/snapshot", (_req, res) => res.json(snapshotBuilder.build(sessionManager.current())));
   app.post("/dev/snapshot", (_req, res) => res.json(snapshotBuilder.build(sessionManager.current())));
   app.get("/dev/catalog", (_req, res) => res.json({ products: catalog.all() }));
+  app.get("/dev/session/reset", handle(respond(async () => sessionManager.startNewSession(), screenServer)));
   app.post("/dev/session/reset", handle(respond(async () => sessionManager.startNewSession(), screenServer)));
+  app.get("/dev/list/sample", handle(async (_req, res) => {
+    const next = await shoppingListReceiver.receive(createSampleShoppingList());
+    screenServer.broadcastSnapshot();
+    const response: CartAckResponse = {
+      ok: true,
+      cartId: next.cartId,
+      sessionId: next.sessionId,
+      receivedListId: "list-dev-sample",
+      itemCount: next.shoppingList.length,
+      status: "list_received"
+    };
+    res.json(response);
+  }));
   app.post("/dev/bluetooth/list", handle(respond(async (req) => {
     await devShoppingListTransport.simulateIncomingShoppingList(req.body);
     return sessionManager.current();
@@ -145,40 +168,58 @@ async function main() {
 
 async function acceptShoppingListPayload(
   payload: unknown,
-  activePairingCode: string,
+  activeSession: CartSession,
   receiver: ShoppingListReceiver,
   requirePairingCode: boolean
 ) {
-  const pairingCode = assertIncomingListBody(payload);
-  if (requirePairingCode && !pairingCode) throw new HttpError(400, "Invalid body: pairingCode is required");
-  if (pairingCode && pairingCode !== activePairingCode) throw new HttpError(403, "Invalid pairing code");
+  const pairingCode = readOptionalPairingCode(payload);
+  if (requirePairingCode && !pairingCode) {
+    throw new HttpError(400, "INVALID_LIST_PAYLOAD", "pairingCode is required.");
+  }
+  if (pairingCode) {
+    assertPairingCodeAndExpiry(activeSession, pairingCode);
+  }
   return receiver.receive(payload);
 }
 
-function assertIncomingListBody(body: unknown) {
-  if (!body || typeof body !== "object") throw new HttpError(400, "Invalid body: expected JSON object");
-  const list = body as { pairingCode?: unknown; listId?: unknown; items?: unknown };
-  if (list.pairingCode !== undefined && (typeof list.pairingCode !== "string" || list.pairingCode.length === 0)) {
-    throw new HttpError(400, "Invalid body: pairingCode must be a string when provided");
+function assertPairingCodeAndExpiry(session: CartSession, pairingCode: string) {
+  if (pairingCode !== session.pairing.pairingCode) {
+    throw new HttpError(403, "INVALID_PAIRING_CODE", "Invalid pairing code.");
   }
-  if (typeof list.listId !== "string" || list.listId.length === 0) {
-    throw new HttpError(400, "Invalid body: listId is required");
+
+  const expiresAt = Date.parse(session.pairing.expiresAt);
+  if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+    throw new HttpError(410, "PAIRING_EXPIRED", "This cart pairing session has expired.");
   }
-  if (!Array.isArray(list.items)) throw new HttpError(400, "Invalid body: items array is required");
-  for (const [index, item] of list.items.entries()) {
-    if (!item || typeof item !== "object") throw new HttpError(400, `Invalid body: items[${index}] must be an object`);
-    const candidate = item as { productId?: unknown; name?: unknown; quantity?: unknown };
-    if (typeof candidate.productId !== "string" || candidate.productId.length === 0) {
-      throw new HttpError(400, `Invalid body: items[${index}].productId is required`);
-    }
-    if (typeof candidate.name !== "string" || candidate.name.length === 0) {
-      throw new HttpError(400, `Invalid body: items[${index}].name is required`);
-    }
-    if (typeof candidate.quantity !== "number" || !Number.isFinite(candidate.quantity)) {
-      throw new HttpError(400, `Invalid body: items[${index}].quantity is required`);
-    }
+}
+
+function readOptionalPairingCode(payload: unknown): string | undefined {
+  if (!payload || typeof payload !== "object") return undefined;
+
+  const pairingCode = (payload as { pairingCode?: unknown }).pairingCode;
+  if (pairingCode === undefined) return undefined;
+  if (typeof pairingCode !== "string" || pairingCode.length === 0) {
+    throw new HttpError(400, "INVALID_LIST_PAYLOAD", "pairingCode must be a non-empty string when provided.");
   }
-  return list.pairingCode;
+  return pairingCode;
+}
+
+function routeParam(value: string | string[] | undefined): string {
+  if (Array.isArray(value)) return value[0] ?? "";
+  return value ?? "";
+}
+
+function createSampleShoppingList(): ShoppingListPayload {
+  return {
+    listId: "list-dev-sample",
+    source: "dev-link",
+    createdAt: new Date().toISOString(),
+    items: [
+      { productId: "p_milk", name: "Milk 1L", quantity: 1 },
+      { productId: "p_bread", name: "Bread", quantity: 2 },
+      { productId: "p_apples", name: "Apples 1kg", quantity: 1 }
+    ]
+  };
 }
 
 function respond(action: (req: Request) => Promise<unknown>, sockets: ScreenSocketServer) {
@@ -192,12 +233,34 @@ function respond(action: (req: Request) => Promise<unknown>, sockets: ScreenSock
 function handle(fn: (req: Request, res: Response) => Promise<void>) {
   return (req: Request, res: Response) => {
     fn(req, res).catch((error) => {
-      const status = error instanceof HttpError ? error.status : 400;
-      const message = error instanceof Error ? error.message : "Unknown error";
-      logger.warn("Request failed", { status, error: message });
-      res.status(status).json({ ok: false, error: message });
+      const httpError = toHttpError(error);
+      const response: CartAckResponse = {
+        ok: false,
+        error: httpError.errorCode,
+        message: httpError.message
+      };
+      logger.warn("Request failed", { status: httpError.status, error: httpError.errorCode, message: httpError.message });
+      res.status(httpError.status).json(response);
     });
   };
+}
+
+function toHttpError(error: unknown): HttpError {
+  if (error instanceof HttpError) return error;
+
+  if (error instanceof ShoppingListValidationError) {
+    if (error.code === "UNKNOWN_PRODUCT") {
+      return new HttpError(422, "UNKNOWN_PRODUCT", error.message);
+    }
+    return new HttpError(400, "INVALID_LIST_PAYLOAD", error.message);
+  }
+
+  if (error instanceof CartSessionStateError) {
+    return new HttpError(409, "CART_NOT_WAITING_FOR_LIST", error.message);
+  }
+
+  const message = error instanceof Error ? error.message : "Unknown error";
+  return new HttpError(500, "ERROR", message);
 }
 
 main().catch((error) => {

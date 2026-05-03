@@ -34,6 +34,11 @@ async function main() {
     process.exit(1);
   }
 
+  if (process.argv[2]?.toLowerCase() === "watch") {
+    await watchStatus();
+    return;
+  }
+
   printHelp();
 
   const rl = readline.createInterface({ input, output, prompt: "> " });
@@ -76,6 +81,9 @@ async function handleCommand(line: string): Promise<CommandResult> {
       case "status":
         await printStatus();
         return "continue";
+      case "watch":
+        await watchStatus();
+        return "exit";
       case "checkout":
         await startCheckout();
         return "continue";
@@ -168,6 +176,9 @@ async function printStatus() {
   console.log(`Cart ID: ${snapshot.cartId}`);
   console.log(`Session ID: ${snapshot.sessionId ?? "not available"}`);
   console.log(`State: ${snapshot.state}`);
+  console.log(`List sent: ${snapshot.shoppingList.length > 0 ? "yes" : "no"}`);
+  console.log(`Active list ID: ${snapshot.activeListId ?? "none"}`);
+  console.log(`Shopping list items: ${snapshot.shoppingList.length}`);
   console.log(`Pairing code: ${snapshot.pairing?.pairingCode ?? "not available"}`);
   console.log(`Cart items: ${snapshot.cartItems.reduce((sum, item) => sum + item.quantity, 0)}`);
   console.log(`Subtotal: ${formatMoney(snapshot.totals.subtotal)}`);
@@ -176,6 +187,82 @@ async function printStatus() {
   console.log(`Position: ${snapshot.position.nodeId} (${snapshot.position.x}, ${snapshot.position.y})`);
   console.log(`Route next target: ${snapshot.route.nextTarget ?? "none"}`);
   console.log(`Route nodes: ${snapshot.route.nodes.length ? snapshot.route.nodes.join(" -> ") : "none"}`);
+}
+
+async function watchStatus() {
+  while (true) {
+    try {
+      const [health, snapshot] = await Promise.all([
+        getJson<HealthResponse>("/health"),
+        getSnapshot()
+      ]);
+      console.clear();
+      printLiveDashboard(health, snapshot);
+    } catch (error) {
+      console.clear();
+      console.log("Carto live monitor");
+      console.log(`Backend URL: ${edgeUrl}`);
+      console.log(`Updated: ${new Date().toLocaleString()}`);
+      console.log("");
+      console.log("Backend reachable: no");
+      console.log(error instanceof Error ? error.message : String(error));
+      console.log("");
+      console.log("Press Ctrl+C to stop.");
+    }
+
+    await delay(1000);
+  }
+}
+
+function printLiveDashboard(health: HealthResponse, snapshot: CartSnapshot) {
+  const listSent = snapshot.shoppingList.length > 0;
+  const requestedQuantity = snapshot.shoppingList.reduce((sum, item) => sum + item.quantity, 0);
+  const inCartQuantity = snapshot.cartItems.reduce((sum, item) => sum + item.quantity, 0);
+  const completedListItems = snapshot.shoppingList.filter((item) => item.status === "IN_CART").length;
+
+  console.log("Carto live monitor");
+  console.log(`Backend URL: ${edgeUrl}`);
+  console.log(`Updated: ${new Date().toLocaleString()}`);
+  console.log("");
+  console.log(`Backend reachable: ${health.ok ? "yes" : "no"} | Screen clients: ${health.screenClients}`);
+  console.log(`Cart: ${snapshot.cartId} | Session: ${snapshot.sessionId ?? "none"}`);
+  console.log(`State: ${snapshot.state} | Payment: ${snapshot.payment.status}`);
+  console.log(`List sent: ${listSent ? "yes" : "no"} | Active list ID: ${snapshot.activeListId ?? "none"}`);
+  console.log(`List progress: ${completedListItems}/${snapshot.shoppingList.length} items complete | Quantity in cart: ${inCartQuantity}/${requestedQuantity}`);
+  console.log(`Cart items: ${snapshot.cartItems.length} lines | Total: ${formatMoney(snapshot.totals.total)}`);
+  console.log(`Position: ${snapshot.position.nodeId} (${snapshot.position.x}, ${snapshot.position.y}) | Next target: ${snapshot.route.nextTarget ?? "none"}`);
+
+  if (snapshot.pairing && snapshot.state === "WAITING_FOR_LIST") {
+    console.log(`Pairing code: ${snapshot.pairing.pairingCode} | Expires: ${snapshot.pairing.expiresAt}`);
+  }
+
+  console.log("");
+  console.log("Shopping list:");
+  if (!snapshot.shoppingList.length) {
+    console.log("- waiting for list from webapp");
+  } else {
+    for (const item of snapshot.shoppingList) {
+      console.log(`- ${item.productId} | ${item.name} | needed ${item.quantity} | in cart ${item.inCartQuantity} | ${item.status}`);
+    }
+  }
+
+  console.log("");
+  console.log("Cart receipt:");
+  if (!snapshot.cartItems.length) {
+    console.log("- empty");
+  } else {
+    for (const item of snapshot.cartItems) {
+      console.log(`- ${item.productId} | ${item.name} | qty ${item.quantity} | line ${formatMoney(item.lineTotal)}`);
+    }
+  }
+
+  console.log("");
+  console.log("Recent alerts:");
+  for (const alert of snapshot.alerts.slice(-3)) {
+    console.log(`- ${alert.level}: ${alert.message}`);
+  }
+  console.log("");
+  console.log("Press Ctrl+C to stop.");
 }
 
 async function startCheckout() {
@@ -331,6 +418,7 @@ function printHelp() {
   console.log("  remove <product name>");
   console.log("  restart");
   console.log("  status");
+  console.log("  watch");
   console.log("  checkout");
   console.log("  pay success");
   console.log("  pay fail");
@@ -344,6 +432,7 @@ function printHelp() {
   console.log("  add milk 1L");
   console.log("  remove milk 1L");
   console.log("  move dairy_01");
+  console.log("  watch");
 }
 
 function printProducts(products: Product[]) {
@@ -359,6 +448,10 @@ function normalize(value: string) {
 
 function formatMoney(value: number) {
   return value.toFixed(2);
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 main().catch((error) => {

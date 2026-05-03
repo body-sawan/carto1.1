@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import type { PairingInfo } from "@carto/shared";
+import type { CartQrPayload, PairingInfo } from "@carto/shared";
 import type { EdgeConfig } from "../system/env.js";
 
 export class PairingManager {
@@ -19,7 +19,7 @@ export class PairingManager {
       notifyCharacteristicUuid: this.config.bleNotifyCharacteristicUuid,
       expiresAt
     };
-    const qrPayload = {
+    const qrPayload: CartQrPayload = {
       cartId,
       pairingCode
     };

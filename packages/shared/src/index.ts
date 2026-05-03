@@ -1,6 +1,6 @@
 export const PROTOCOL_VERSION = "1.0";
 
-export type CartState =
+export type CartSessionState =
   | "BOOTING"
   | "WAITING_FOR_LIST"
   | "SHOPPING"
@@ -11,8 +11,41 @@ export type CartState =
   | "SESSION_CLOSED"
   | "ERROR";
 
+export type CartState = CartSessionState;
+
 export type PaymentStatus = "NOT_STARTED" | "WAITING_PAYMENT" | "PAID" | "FAILED" | "CANCELLED";
 export type ShoppingListItemStatus = "PENDING" | "PARTIAL" | "IN_CART" | "REMOVED" | "SKIPPED";
+
+export interface CartQrPayload {
+  cartId: string;
+  pairingCode: string;
+}
+
+export interface CartPairingPayload {
+  cartId: string;
+  pairingCode: string;
+  expiresAt?: string;
+}
+
+export type CartAckStatus =
+  | "list_received"
+  | "invalid_payload"
+  | "pairing_expired"
+  | "invalid_pairing_code"
+  | "cart_not_waiting_for_list"
+  | "unknown_product"
+  | "error";
+
+export interface CartAckResponse {
+  ok: boolean;
+  cartId?: string;
+  sessionId?: string;
+  receivedListId?: string;
+  itemCount?: number;
+  status?: CartAckStatus;
+  error?: string;
+  message?: string;
+}
 
 export type EdgeMessageType = "cart.snapshot" | "cart.state_changed" | "cart.alert" | "payment.status" | "heartbeat";
 export type ScreenMessageType =
@@ -51,12 +84,16 @@ export interface IncomingShoppingListItem {
   quantity: number;
 }
 
+export type ShoppingListItemPayload = IncomingShoppingListItem;
+
 export interface IncomingShoppingList {
   listId: string;
-  source: string;
-  items: IncomingShoppingListItem[];
-  createdAt: string;
+  source?: string;
+  items: ShoppingListItemPayload[];
+  createdAt?: string;
 }
+
+export type ShoppingListPayload = IncomingShoppingList;
 
 export interface ShoppingListItem extends IncomingShoppingListItem {
   status: ShoppingListItemStatus;
@@ -126,6 +163,7 @@ export interface CartSnapshot {
   sessionId: string | null;
   state: CartState;
   pairing: PairingInfo | null;
+  activeListId?: string;
   shoppingList: ShoppingListItem[];
   cartItems: ReceiptLine[];
   totals: Totals;
@@ -140,6 +178,7 @@ export interface CartSession {
   sessionId: string;
   state: CartState;
   pairing: PairingInfo;
+  activeListId?: string;
   shoppingList: ShoppingListItem[];
   cartItems: ReceiptLine[];
   totals: Totals;

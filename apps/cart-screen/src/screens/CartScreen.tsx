@@ -11,6 +11,7 @@ import { ConnectionStatus } from "../components/ConnectionStatus";
 import { SmartReceiptScreen } from "../components/SmartReceiptScreen";
 import { PaymentSuccessScreen } from "../components/PaymentSuccessScreen";
 import { PaymentFailedModal } from "../components/PaymentFailedModal";
+import { AdminAccessButton } from "../components/AdminAccessButton";
 
 const SHOPPING_LAYOUT_STATES = new Set<CartState>([
   "SHOPPING",
@@ -24,6 +25,7 @@ export function CartScreen() {
   const lastUpdateAt = useCartUiStore((state) => state.lastUpdateAt);
   const showShoppingLayout = snapshot ? SHOPPING_LAYOUT_STATES.has(snapshot.state) : false;
   const resetSession = useCallback(() => socket.resetSession(), [socket]);
+  const startCheckout = useCallback(() => socket.startCheckout(), [socket]);
 
   return (
     <SafeAreaView style={styles.root}>
@@ -58,17 +60,23 @@ export function CartScreen() {
               <StoreMapPlaceholderPanel />
             </View>
             <View style={styles.rightPanel}>
-              <CartItemsPanel snapshot={snapshot} connected={connected} onCheckout={() => socket.startCheckout()} />
+              <CartItemsPanel snapshot={snapshot} connected={connected} onCheckout={startCheckout} />
             </View>
           </View>
         </View>
       )}
+      <AdminAccessButton
+        connected={connected}
+        snapshot={snapshot}
+        onResetSession={resetSession}
+        onStartCheckout={startCheckout}
+      />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "#eef2f6" },
+  root: { flex: 1, backgroundColor: "#eef2f6", position: "relative" },
   receiptScreen: { flex: 1 },
   qrScreen: {
     flex: 1,

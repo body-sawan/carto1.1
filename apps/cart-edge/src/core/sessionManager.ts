@@ -9,6 +9,8 @@ import type { RoutePlanner } from "../navigation/routePlanner.js";
 import type { PositionSimulator } from "../navigation/positionSimulator.js";
 import type { CheckoutManager } from "./checkoutManager.js";
 
+export class CartSessionStateError extends Error {}
+
 export class SessionManager {
   private session: CartSession | null = null;
 
@@ -54,6 +56,7 @@ export class SessionManager {
       sessionId,
       state: this.stateMachine.transition("BOOTING", "WAITING_FOR_LIST"),
       pairing,
+      activeListId: undefined,
       shoppingList: [],
       cartItems: [],
       totals: { subtotal: 0, discount: 0, tax: 0, total: 0 },
@@ -94,15 +97,16 @@ export class SessionManager {
     const incoming = this.listEngine.validateIncoming(input) as IncomingShoppingList;
     const session = this.current();
     if (session.state !== "WAITING_FOR_LIST") {
-      throw new Error(`Cart is not waiting for a shopping list in state ${session.state}`);
+      throw new CartSessionStateError("Cart is not waiting for a shopping list.");
     }
     const shoppingList = this.listEngine.createItems(incoming);
     this.session = {
       ...session,
       state: this.stateMachine.transition(session.state, "SHOPPING"),
+      activeListId: incoming.listId,
       shoppingList,
       route: this.routePlanner.plan(session.position.nodeId, shoppingList),
-      alerts: [...session.alerts, this.alert("success", `Shopping list ${incoming.listId} received over Bluetooth.`)],
+      alerts: [...session.alerts, this.alert("success", `Shopping list ${incoming.listId} received.`)],
       updatedAt: new Date().toISOString()
     };
     await this.persist();

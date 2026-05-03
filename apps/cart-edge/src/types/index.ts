@@ -1,6 +1,11 @@
 ﻿export type {
   Alert,
+  CartAckResponse,
+  CartAckStatus,
+  CartPairingPayload,
+  CartQrPayload,
   CartSession,
+  CartSessionState,
   CartSnapshot,
   CartState,
   IncomingShoppingList,
@@ -13,6 +18,8 @@
   ReceiptLine,
   Route,
   ShoppingListItem,
+  ShoppingListItemPayload,
+  ShoppingListPayload,
   ShoppingListItemStatus,
   Totals
 } from "@carto/shared";
