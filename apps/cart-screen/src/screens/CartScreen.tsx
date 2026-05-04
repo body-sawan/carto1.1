@@ -26,6 +26,9 @@ export function CartScreen() {
   const showShoppingLayout = snapshot ? SHOPPING_LAYOUT_STATES.has(snapshot.state) : false;
   const resetSession = useCallback(() => socket.resetSession(), [socket]);
   const startCheckout = useCallback(() => socket.startCheckout(), [socket]);
+  const startShopping = useCallback(() => socket.startShopping(), [socket]);
+  const retryPayment = useCallback(() => socket.retryPayment(), [socket]);
+  const cancelCheckout = useCallback(() => socket.cancelCheckout(), [socket]);
 
   return (
     <SafeAreaView style={styles.root}>
@@ -33,7 +36,7 @@ export function CartScreen() {
         <View style={styles.receiptScreen}>
           <SmartReceiptScreen snapshot={snapshot} />
           {snapshot.state === "PAYMENT_FAILED" ? (
-            <PaymentFailedModal connected={connected} onTryAgain={() => socket.retryPayment()} />
+            <PaymentFailedModal connected={connected} onTryAgain={retryPayment} />
           ) : null}
         </View>
       ) : snapshot?.state === "PAID" ? (
@@ -47,7 +50,7 @@ export function CartScreen() {
       ) : !showShoppingLayout ? (
         <View style={styles.qrScreen}>
           <ConnectionStatus connected={connected} snapshot={snapshot} lastUpdateAt={lastUpdateAt} variant="floating" />
-          <QRCodePanel snapshot={snapshot} />
+          <QRCodePanel connected={connected} snapshot={snapshot} onStartShopping={startShopping} />
         </View>
       ) : (
         <View style={styles.shoppingScreen}>
@@ -69,7 +72,10 @@ export function CartScreen() {
         connected={connected}
         snapshot={snapshot}
         onResetSession={resetSession}
+        onStartShopping={startShopping}
         onStartCheckout={startCheckout}
+        onRetryPayment={retryPayment}
+        onCancelCheckout={cancelCheckout}
       />
     </SafeAreaView>
   );

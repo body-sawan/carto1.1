@@ -9,7 +9,16 @@ import type { RoutePlanner } from "../navigation/routePlanner.js";
 import type { PositionSimulator } from "../navigation/positionSimulator.js";
 import type { CheckoutManager } from "./checkoutManager.js";
 
-export class CartSessionStateError extends Error {}
+export type CartSessionStateErrorCode = "CART_NOT_WAITING_FOR_LIST" | "INVALID_STATE";
+
+export class CartSessionStateError extends Error {
+  constructor(
+    public readonly code: CartSessionStateErrorCode,
+    message: string
+  ) {
+    super(message);
+  }
+}
 
 export class SessionManager {
   private session: CartSession | null = null;
@@ -57,6 +66,7 @@ export class SessionManager {
       state: this.stateMachine.transition("BOOTING", "WAITING_FOR_LIST"),
       pairing,
       activeListId: undefined,
+      shoppingMode: undefined,
       shoppingList: [],
       cartItems: [],
       totals: { subtotal: 0, discount: 0, tax: 0, total: 0 },
@@ -97,16 +107,51 @@ export class SessionManager {
     const incoming = this.listEngine.validateIncoming(input) as IncomingShoppingList;
     const session = this.current();
     if (session.state !== "WAITING_FOR_LIST") {
-      throw new CartSessionStateError("Cart is not waiting for a shopping list.");
+      throw new CartSessionStateError("CART_NOT_WAITING_FOR_LIST", "Cart is not waiting for a shopping list.");
     }
     const shoppingList = this.listEngine.createItems(incoming);
     this.session = {
       ...session,
       state: this.stateMachine.transition(session.state, "SHOPPING"),
       activeListId: incoming.listId,
+      shoppingMode: "LIST",
       shoppingList,
       route: this.routePlanner.plan(session.position.nodeId, shoppingList),
       alerts: [...session.alerts, this.alert("success", `Shopping list ${incoming.listId} received.`)],
+      updatedAt: new Date().toISOString()
+    };
+    await this.persist();
+    return this.session;
+  }
+
+  async startGuestSession(): Promise<CartSession> {
+    const session = this.current();
+    if (session.state === "SHOPPING" && session.shoppingList.length === 0) {
+      if (session.shoppingMode === "GUEST") return session;
+
+      this.session = {
+        ...session,
+        activeListId: undefined,
+        shoppingMode: "GUEST",
+        updatedAt: new Date().toISOString()
+      };
+      await this.persist();
+      return this.session;
+    }
+
+    if (session.state !== "WAITING_FOR_LIST") {
+      throw new CartSessionStateError("INVALID_STATE", "Cannot start shopping from the current cart state.");
+    }
+
+    const shoppingList: CartSession["shoppingList"] = [];
+    this.session = {
+      ...session,
+      state: this.stateMachine.transition(session.state, "SHOPPING"),
+      activeListId: undefined,
+      shoppingMode: "GUEST",
+      shoppingList,
+      route: this.routePlanner.plan(session.position.nodeId, shoppingList),
+      alerts: [...session.alerts, this.alert("info", "Started shopping without a list.")],
       updatedAt: new Date().toISOString()
     };
     await this.persist();

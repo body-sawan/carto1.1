@@ -8,6 +8,7 @@ export class SnapshotBuilder {
       state: session.state,
       pairing: session.pairing,
       activeListId: session.activeListId,
+      shoppingMode: session.shoppingMode,
       shoppingList: session.shoppingList,
       cartItems: session.cartItems,
       totals: session.totals,

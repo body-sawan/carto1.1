@@ -52,8 +52,16 @@ export class CartSocketClient {
     this.send("command.checkout_start", {});
   }
 
+  startShopping() {
+    this.send("command.start_shopping", { sentAt: new Date().toISOString() });
+  }
+
   retryPayment() {
     this.send("command.payment_retry", {});
+  }
+
+  cancelCheckout() {
+    this.send("command.cancel_checkout", {});
   }
 
   resetSession() {

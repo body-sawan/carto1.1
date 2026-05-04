@@ -256,7 +256,7 @@ function toHttpError(error: unknown): HttpError {
   }
 
   if (error instanceof CartSessionStateError) {
-    return new HttpError(409, "CART_NOT_WAITING_FOR_LIST", error.message);
+    return new HttpError(409, error.code, error.message);
   }
 
   const message = error instanceof Error ? error.message : "Unknown error";

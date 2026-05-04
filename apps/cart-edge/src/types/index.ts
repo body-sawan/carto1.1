@@ -17,6 +17,7 @@
   Product,
   ReceiptLine,
   Route,
+  ShoppingMode,
   ShoppingListItem,
   ShoppingListItemPayload,
   ShoppingListPayload,

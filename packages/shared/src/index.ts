@@ -14,6 +14,7 @@ export type CartSessionState =
 export type CartState = CartSessionState;
 
 export type PaymentStatus = "NOT_STARTED" | "WAITING_PAYMENT" | "PAID" | "FAILED" | "CANCELLED";
+export type ShoppingMode = "LIST" | "GUEST";
 export type ShoppingListItemStatus = "PENDING" | "PARTIAL" | "IN_CART" | "REMOVED" | "SKIPPED";
 
 export interface CartQrPayload {
@@ -55,6 +56,7 @@ export type ScreenMessageType =
   | "command.payment_confirm"
   | "command.payment_retry"
   | "command.session_reset"
+  | "command.start_shopping"
   | "command.cancel_checkout";
 
 export interface ProtocolMessage<TType extends string = string, TPayload = unknown> {
@@ -164,6 +166,7 @@ export interface CartSnapshot {
   state: CartState;
   pairing: PairingInfo | null;
   activeListId?: string;
+  shoppingMode?: ShoppingMode;
   shoppingList: ShoppingListItem[];
   cartItems: ReceiptLine[];
   totals: Totals;
@@ -179,6 +182,7 @@ export interface CartSession {
   state: CartState;
   pairing: PairingInfo;
   activeListId?: string;
+  shoppingMode?: ShoppingMode;
   shoppingList: ShoppingListItem[];
   cartItems: ReceiptLine[];
   totals: Totals;

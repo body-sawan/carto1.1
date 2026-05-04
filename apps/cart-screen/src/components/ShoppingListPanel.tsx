@@ -1,8 +1,11 @@
 import { ScrollView, View, Text, StyleSheet } from "react-native";
 import type { CartSnapshot } from "../store/cartUiStore";
 
+const CUSTOMER_WEBAPP_URL = process.env.EXPO_PUBLIC_CUSTOMER_WEBAPP_URL ?? "https://carto.com";
+
 export function ShoppingListPanel({ snapshot }: { snapshot: CartSnapshot | null }) {
   const items = snapshot?.shoppingList ?? [];
+  const isGuestMode = snapshot?.shoppingMode === "GUEST" || (snapshot?.state === "SHOPPING" && items.length === 0);
 
   return (
     <View style={styles.panel}>
@@ -20,7 +23,19 @@ export function ShoppingListPanel({ snapshot }: { snapshot: CartSnapshot | null 
             <Text style={[styles.badge, statusStyle(item.status)]}>{item.status}</Text>
           </View>
         ))}
-        {!items.length ? <Text style={styles.empty}>Shopping list will appear here after pairing.</Text> : null}
+        {!items.length ? (
+          isGuestMode ? (
+            <View style={styles.guestEmpty}>
+              <Text style={styles.emptyTitle}>No shopping list</Text>
+              <Text style={styles.emptyText}>You started shopping without a list.</Text>
+              <Text style={styles.emptyText}>Scan products to add them to your cart.</Text>
+              <Text style={styles.emptyText}>For the full experience, create a list from the web app:</Text>
+              <Text style={styles.webappUrl}>{CUSTOMER_WEBAPP_URL.replace(/^https?:\/\//, "")}</Text>
+            </View>
+          ) : (
+            <Text style={styles.empty}>Shopping list will appear here after pairing.</Text>
+          )
+        ) : null}
       </ScrollView>
     </View>
   );
@@ -56,5 +71,18 @@ const styles = StyleSheet.create({
   name: { fontSize: 15, fontWeight: "800", color: "#1e293b" },
   sub: { fontSize: 12, color: "#64748b", fontWeight: "700" },
   badge: { overflow: "hidden", borderRadius: 999, paddingHorizontal: 9, paddingVertical: 6, fontSize: 10, fontWeight: "900" },
-  empty: { color: "#64748b", lineHeight: 20 }
+  empty: { color: "#64748b", lineHeight: 20 },
+  guestEmpty: {
+    minHeight: 250,
+    borderRadius: 12,
+    backgroundColor: "#f8fafc",
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    padding: 18,
+    justifyContent: "center",
+    gap: 8
+  },
+  emptyTitle: { color: "#142033", fontSize: 20, fontWeight: "900", textAlign: "center" },
+  emptyText: { color: "#64748b", fontSize: 14, fontWeight: "800", lineHeight: 20, textAlign: "center" },
+  webappUrl: { color: "#2563eb", fontSize: 16, fontWeight: "900", textAlign: "center" }
 });

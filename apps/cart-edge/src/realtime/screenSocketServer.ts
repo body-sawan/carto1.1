@@ -34,7 +34,10 @@ export class ScreenSocketServer {
         try {
           await this.handleMessage(socket, JSON.parse(raw.toString()) as ProtocolMessage);
         } catch (error) {
-          logger.warn("Invalid screen message", { error: error instanceof Error ? error.message : String(error) });
+          const message = error instanceof Error ? error.message : String(error);
+          logger.warn("Invalid screen message", { error: message });
+          await this.sessionManager.addAlert("error", message);
+          this.broadcastSnapshot();
         }
       });
 
@@ -87,6 +90,10 @@ export class ScreenSocketServer {
         return;
       case "command.session_reset":
         await this.sessionManager.startNewSession();
+        this.broadcastSnapshot();
+        return;
+      case "command.start_shopping":
+        await this.sessionManager.startGuestSession();
         this.broadcastSnapshot();
         return;
       case "command.cancel_checkout":

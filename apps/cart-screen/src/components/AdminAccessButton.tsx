@@ -9,10 +9,21 @@ interface AdminAccessButtonProps {
   connected: boolean;
   snapshot: CartSnapshot | null;
   onResetSession: () => void;
+  onStartShopping: () => void;
   onStartCheckout: () => void;
+  onRetryPayment: () => void;
+  onCancelCheckout: () => void;
 }
 
-export function AdminAccessButton({ connected, snapshot, onResetSession, onStartCheckout }: AdminAccessButtonProps) {
+export function AdminAccessButton({
+  connected,
+  snapshot,
+  onResetSession,
+  onStartShopping,
+  onStartCheckout,
+  onRetryPayment,
+  onCancelCheckout
+}: AdminAccessButtonProps) {
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [panelVisible, setPanelVisible] = useState(false);
 
@@ -45,7 +56,10 @@ export function AdminAccessButton({ connected, snapshot, onResetSession, onStart
         visible={panelVisible}
         onClose={() => setPanelVisible(false)}
         onResetSession={onResetSession}
+        onStartShopping={onStartShopping}
         onStartCheckout={onStartCheckout}
+        onRetryPayment={onRetryPayment}
+        onCancelCheckout={onCancelCheckout}
       />
     </>
   );

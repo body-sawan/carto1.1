@@ -1,18 +1,42 @@
-import { View, Text, StyleSheet } from "react-native";
+import { Pressable, View, Text, StyleSheet } from "react-native";
 import QRCode from "react-native-qrcode-svg";
 import type { CartSnapshot } from "../store/cartUiStore";
 
-export function QRCodePanel({ snapshot }: { snapshot: CartSnapshot | null }) {
+interface QRCodePanelProps {
+  connected: boolean;
+  snapshot: CartSnapshot | null;
+  onStartShopping: () => void;
+}
+
+export function QRCodePanel({ connected, snapshot, onStartShopping }: QRCodePanelProps) {
   const pairing = snapshot?.pairing;
   return (
     <View style={styles.panel}>
       <View style={styles.copy}>
         <Text style={styles.title}>Scan to Start Shopping</Text>
-        <Text style={styles.subtitle}>Scan this QR code from your phone to send your shopping list.</Text>
+        <Text style={styles.subtitle}>Scan the QR to load your shopping list.</Text>
       </View>
       <View style={styles.qrBox}>
         {pairing ? <QRCode value={pairing.qrPayload} size={236} /> : <Text style={styles.loading}>Starting pairing...</Text>}
       </View>
+      <Text style={styles.orText}>or</Text>
+      <Pressable
+        accessibilityRole="button"
+        disabled={!connected}
+        onPress={onStartShopping}
+        style={({ pressed }) => [
+          styles.startButton,
+          !connected ? styles.startButtonDisabled : null,
+          pressed && connected ? styles.startButtonPressed : null
+        ]}
+      >
+        <Text style={[styles.startButtonText, !connected ? styles.startButtonTextDisabled : null]}>
+          Start Shopping
+        </Text>
+        <Text style={[styles.startButtonSub, !connected ? styles.startButtonTextDisabled : null]}>
+          No list needed
+        </Text>
+      </Pressable>
       <View style={styles.codeBlock}>
         <Text style={styles.codeLabel}>Pairing Code</Text>
         <Text style={styles.code}>{pairing?.pairingCode ?? "------"}</Text>
@@ -51,6 +75,23 @@ const styles = StyleSheet.create({
     borderColor: "#e2e8f0"
   },
   loading: { color: "#64748b", fontWeight: "700" },
+  orText: { marginTop: -8, marginBottom: -8, color: "#64748b", fontSize: 13, fontWeight: "900", textTransform: "uppercase" },
+  startButton: {
+    width: "100%",
+    maxWidth: 320,
+    minHeight: 68,
+    borderRadius: 14,
+    backgroundColor: "#2563eb",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 22,
+    paddingVertical: 10
+  },
+  startButtonPressed: { backgroundColor: "#1d4ed8" },
+  startButtonDisabled: { backgroundColor: "#cbd5e1" },
+  startButtonText: { color: "#ffffff", fontSize: 20, fontWeight: "900" },
+  startButtonSub: { color: "#dbeafe", fontSize: 13, fontWeight: "900", marginTop: 3 },
+  startButtonTextDisabled: { color: "#64748b" },
   codeBlock: { alignItems: "center", gap: 4 },
   codeLabel: { fontSize: 12, fontWeight: "900", color: "#64748b", textTransform: "uppercase" },
   code: { fontSize: 36, fontWeight: "900", letterSpacing: 0, color: "#047857" },
