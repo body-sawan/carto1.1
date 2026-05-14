@@ -14,7 +14,9 @@ export class RoutePlanner {
       .filter((nodeId): nodeId is string => Boolean(nodeId));
 
     const uniqueTargets = [...new Set(targets)];
-    if (uniqueTargets.length === 0) return { nodes: ["checkout"], nextTarget: "checkout", distance: 0 };
+    if (uniqueTargets.length === 0) {
+      return { nodes: ["checkout"], path: ["checkout"], nextTarget: "checkout", distance: 0 };
+    }
 
     let best: PathResult | null = null;
     for (const target of uniqueTargets) {
@@ -22,7 +24,12 @@ export class RoutePlanner {
       if (!best || path.distance < best.distance) best = path;
     }
 
-    return { nodes: best?.path ?? [], nextTarget: best?.path.at(-1) ?? null, distance: best?.distance ?? 0 };
+    return {
+      nodes: best?.path ?? [],
+      path: best?.path ?? [],
+      nextTarget: best?.path.at(-1) ?? null,
+      distance: best?.distance ?? 0
+    };
   }
 
   private shortestPath(start: string, goal: string): PathResult {

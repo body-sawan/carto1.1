@@ -43,7 +43,18 @@ export class ShoppingListEngine {
   }
 
   createItems(list: IncomingShoppingList): ShoppingListItem[] {
-    return list.items.map((item) => ({ ...item, status: "PENDING", inCartQuantity: 0 }));
+    return list.items.map((item) => {
+      const product = this.catalog.findByProductId(item.productId);
+      return {
+        ...item,
+        status: "PENDING",
+        inCartQuantity: 0,
+        price: product?.price,
+        category: product?.category,
+        shelfId: product?.shelfId,
+        mapNodeId: product?.mapNodeId
+      };
+    });
   }
 
   updateStatuses(list: ShoppingListItem[], quantities: Map<string, number>): ShoppingListItem[] {

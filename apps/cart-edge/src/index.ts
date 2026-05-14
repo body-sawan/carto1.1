@@ -1,7 +1,9 @@
 import http from "node:http";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import cors from "cors";
 import express, { type Request, type Response } from "express";
+import { z } from "zod";
 import { PairingManager } from "./bluetooth/pairingManager.js";
 import { ShoppingListReceiver } from "./bluetooth/shoppingListReceiver.js";
 import { CartStateMachine } from "./core/cartStateMachine.js";
@@ -9,6 +11,7 @@ import { CheckoutManager } from "./core/checkoutManager.js";
 import { ReceiptEngine } from "./core/receiptEngine.js";
 import { CartSessionStateError, SessionManager } from "./core/sessionManager.js";
 import { ShoppingListEngine, ShoppingListValidationError } from "./core/shoppingListEngine.js";
+import { loadMapMetadata, worldToPixel, type StoreMapMetadata } from "./navigation/mapProjection.js";
 import { RoutePlanner } from "./navigation/routePlanner.js";
 import { PositionSimulator } from "./navigation/positionSimulator.js";
 import { PaymentSimulator } from "./payments/paymentSimulator.js";
@@ -33,8 +36,17 @@ class HttpError extends Error {
   }
 }
 
+const devPoseSchema = z.object({
+  x: z.number().finite(),
+  y: z.number().finite(),
+  yaw: z.number().finite().optional().default(0)
+});
+
 async function main() {
   const config = loadConfig();
+  const appRootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+  const mapsDir = path.join(appRootDir, "public", "maps");
+  const storeMapMetadataPath = path.join(mapsDir, "store.json");
   const catalog = new ProductCatalog();
   const stateMachine = new CartStateMachine();
   const receiptEngine = new ReceiptEngine(catalog);
@@ -68,10 +80,23 @@ async function main() {
   const app = express();
   app.use(cors());
   app.use(express.json());
+  app.use("/maps", express.static(mapsDir));
 
   const server = http.createServer(app);
   const screenServer = new ScreenSocketServer(server, sessionManager);
   screenServer.start();
+  let cachedMapMetadata: StoreMapMetadata | null = null;
+  const getStoreMapMetadata = async () => {
+    if (!cachedMapMetadata) {
+      try {
+        cachedMapMetadata = await loadMapMetadata(storeMapMetadataPath);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new HttpError(503, "MAP_METADATA_UNAVAILABLE", `Store map metadata is unavailable: ${message}`);
+      }
+    }
+    return cachedMapMetadata;
+  };
   const makeIncomingShoppingListHandler = (requirePairingCode: boolean) => async (payload: unknown) => {
     try {
       await acceptShoppingListPayload(payload, sessionManager.current(), shoppingListReceiver, requirePairingCode);
@@ -148,6 +173,18 @@ async function main() {
   app.post("/dev/scan", handle(respond(async (req) => sessionManager.scanProduct(req.body), screenServer)));
   app.post("/dev/remove", handle(respond(async (req) => sessionManager.removeProduct(String(req.body.productId)), screenServer)));
   app.post("/dev/move", handle(respond(async (req) => sessionManager.moveTo(String(req.body.nodeId)), screenServer)));
+  app.post("/dev/pose", handle(respond(async (req) => {
+    const pose = parseDevPose(req.body);
+    const metadata = await getStoreMapMetadata();
+    const projected = worldToPixel(metadata, pose.x, pose.y);
+    return sessionManager.updateLocalizedPose({
+      xMeters: pose.x,
+      yMeters: pose.y,
+      yawRad: pose.yaw,
+      pixelX: projected.pixelX,
+      pixelY: projected.pixelY
+    });
+  }, screenServer)));
   app.post("/dev/checkout/start", handle(respond(async () => sessionManager.startCheckout(), screenServer)));
   app.post("/dev/checkout", handle(respond(async () => sessionManager.startCheckout(), screenServer)));
   app.post("/dev/checkout/cancel", handle(respond(async () => sessionManager.cancelCheckout(), screenServer)));
@@ -164,6 +201,14 @@ async function main() {
       bluetoothMode: config.bluetoothMode
     });
   });
+}
+
+function parseDevPose(payload: unknown): z.infer<typeof devPoseSchema> {
+  const parsed = devPoseSchema.safeParse(payload);
+  if (!parsed.success) {
+    throw new HttpError(400, "INVALID_POSE_PAYLOAD", formatDevPoseValidationMessage(parsed.error));
+  }
+  return parsed.data;
 }
 
 async function acceptShoppingListPayload(
@@ -261,6 +306,17 @@ function toHttpError(error: unknown): HttpError {
 
   const message = error instanceof Error ? error.message : "Unknown error";
   return new HttpError(500, "ERROR", message);
+}
+
+function formatDevPoseValidationMessage(error: z.ZodError): string {
+  for (const issue of error.issues) {
+    const [field] = issue.path;
+    if (field === "x") return "Pose payload x must be a finite number.";
+    if (field === "y") return "Pose payload y must be a finite number.";
+    if (field === "yaw") return "Pose payload yaw must be a finite number when provided.";
+  }
+
+  return "Invalid pose payload.";
 }
 
 main().catch((error) => {

@@ -5,7 +5,13 @@ export class PositionSimulator {
   getPosition(nodeId: string): Position {
     const node = getMapNode(nodeId);
     if (!node) throw new Error(`Unknown map node: ${nodeId}`);
-    return { nodeId: node.id, x: node.x, y: node.y };
+    return {
+      nodeId: node.id,
+      x: node.x,
+      y: node.y,
+      source: "simulator",
+      updatedAt: new Date().toISOString()
+    };
   }
 }
 

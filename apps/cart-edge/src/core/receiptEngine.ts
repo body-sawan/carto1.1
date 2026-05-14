@@ -29,6 +29,9 @@ export class ReceiptEngine {
       unitPrice: product.price,
       quantity: 1,
       lineTotal: product.price,
+      category: product.category,
+      shelfId: product.shelfId,
+      mapNodeId: product.mapNodeId,
       addedAt: new Date().toISOString()
     }];
   }

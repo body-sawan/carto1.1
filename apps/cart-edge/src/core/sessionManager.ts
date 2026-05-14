@@ -8,6 +8,15 @@ import type { ReceiptEngine } from "./receiptEngine.js";
 import type { RoutePlanner } from "../navigation/routePlanner.js";
 import type { PositionSimulator } from "../navigation/positionSimulator.js";
 import type { CheckoutManager } from "./checkoutManager.js";
+import { getMapNode } from "../navigation/storeMap.js";
+
+export interface LocalizedPoseUpdate {
+  xMeters: number;
+  yMeters: number;
+  yawRad: number;
+  pixelX: number;
+  pixelY: number;
+}
 
 export type CartSessionStateErrorCode = "CART_NOT_WAITING_FOR_LIST" | "INVALID_STATE";
 
@@ -71,7 +80,7 @@ export class SessionManager {
       cartItems: [],
       totals: { subtotal: 0, discount: 0, tax: 0, total: 0 },
       position,
-      route: { nodes: [], nextTarget: null, distance: 0 },
+      route: { nodes: [], path: [], nextTarget: null, distance: 0 },
       payment: { status: "NOT_STARTED", amount: 0 },
       alerts: [{ id: "boot", level: "info", message: "Cart ready. Scan QR code to pair shopping list.", createdAt: now }],
       createdAt: now,
@@ -203,6 +212,32 @@ export class SessionManager {
     return this.session;
   }
 
+  async updateLocalizedPose(pose: LocalizedPoseUpdate): Promise<CartSession> {
+    const session = this.current();
+    const updatedAt = new Date().toISOString();
+    const nodeId = this.resolveCompatibleNodeId(session);
+
+    this.session = {
+      ...session,
+      position: {
+        ...session.position,
+        nodeId,
+        x: pose.xMeters,
+        y: pose.yMeters,
+        xMeters: pose.xMeters,
+        yMeters: pose.yMeters,
+        yawRad: pose.yawRad,
+        pixelX: pose.pixelX,
+        pixelY: pose.pixelY,
+        source: "lidar",
+        updatedAt
+      },
+      updatedAt
+    };
+    await this.persist();
+    return this.session;
+  }
+
   async startCheckout(): Promise<CartSession> {
     this.session = this.checkoutManager.start(this.current());
     await this.persist();
@@ -252,6 +287,18 @@ export class SessionManager {
 
   private async persist() {
     await this.store.saveSession(this.current());
+  }
+
+  private resolveCompatibleNodeId(session: CartSession): string {
+    if (getMapNode(session.position.nodeId)) {
+      return session.position.nodeId;
+    }
+
+    if (session.route.nextTarget && getMapNode(session.route.nextTarget)) {
+      return session.route.nextTarget;
+    }
+
+    return "entrance";
   }
 
   private alert(level: "info" | "warning" | "error" | "success", message: string) {

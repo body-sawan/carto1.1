@@ -1,0 +1,9 @@
+# Replace the resolution and origin below with the original ROS map YAML values
+# from your localization workspace, then rerun `npm run map:convert`.
+image: store.pgm
+mode: trinary
+resolution: 0.05
+origin: [0.0, 0.0, 0.0]
+negate: 0
+occupied_thresh: 0.65
+free_thresh: 0.196

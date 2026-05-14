@@ -100,6 +100,10 @@ export type ShoppingListPayload = IncomingShoppingList;
 export interface ShoppingListItem extends IncomingShoppingListItem {
   status: ShoppingListItemStatus;
   inCartQuantity: number;
+  price?: number;
+  category?: string;
+  shelfId?: string;
+  mapNodeId?: string;
 }
 
 export interface ReceiptLine {
@@ -110,6 +114,9 @@ export interface ReceiptLine {
   unitPrice: number;
   quantity: number;
   lineTotal: number;
+  category?: string;
+  shelfId?: string;
+  mapNodeId?: string;
   addedAt: string;
 }
 
@@ -138,10 +145,18 @@ export interface Position {
   nodeId: string;
   x: number;
   y: number;
+  xMeters?: number;
+  yMeters?: number;
+  yawRad?: number;
+  pixelX?: number;
+  pixelY?: number;
+  source?: "simulator" | "lidar";
+  updatedAt?: string;
 }
 
 export interface Route {
   nodes: string[];
+  path?: string[];
   nextTarget: string | null;
   distance: number;
 }

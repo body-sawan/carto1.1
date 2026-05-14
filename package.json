@@ -13,6 +13,7 @@
     "cart:cli": "npm run dev:cli",
     "dev:screen": "npm run dev -w @carto/cart-screen",
     "dev": "npm run dev:edge",
+    "map:convert": "node tools/convert-ros-map.mjs",
     "build": "npm run build -w @carto/shared && npm run build -w @carto/cart-edge",
     "typecheck": "npm run typecheck --workspaces",
     "lint": "npm run lint --workspaces"

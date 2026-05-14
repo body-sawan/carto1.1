@@ -1,45 +1,300 @@
-# Carto: AI-Powered Smart Shopping Cart System
-
-Production-ready base for the smart cart software only. There is no admin dashboard, cloud backend, or external shopping-list app in this repo yet.
-
-## Architecture Rule
+# Carto: Smart Cart Edge + Screen + ROS Map Bridge
 
 `cart-edge` is the source of truth. `cart-screen` is display-only.
 
-All business logic, calculations, validation, cart state changes, receipt updates, route updates, shopping-list status updates, checkout, and payment logic live in `apps/cart-edge`.
+This repo now supports a real ROS 2 localization flow:
+
+`ROS localization -> carto_pose_bridge -> POST /dev/pose -> cart-edge snapshot -> cart-screen live map marker`
+
+`cart-screen` never talks to ROS directly.
 
 ## Project Structure
 
-- `apps/cart-edge`: Node.js edge service, HTTP API, WebSocket server, state machine, receipt/list/route/payment logic, JSON persistence.
-- `apps/cart-screen`: Expo React Native display. It connects to edge WebSocket and renders received `cart.snapshot` messages.
+- `apps/cart-edge`: Node.js edge service, HTTP API, WebSocket server, session state, shopping logic, route logic, JSON persistence, static map hosting.
+- `apps/cart-screen`: Expo React Native display app. It renders only the latest `cart.snapshot` from `cart-edge`.
+- `apps/carto-ros-bridge`: ROS 2 Python package that forwards `/amcl_pose` to `cart-edge`.
 - `packages/shared`: shared TypeScript protocol and domain types.
-- `deploy/raspberry-pi`: Raspberry Pi deployment preparation files.
 
-## Install And Run
+## Map Assets
 
-```powershell
+Static map files live in:
+
+`apps/cart-edge/public/maps`
+
+Expected files:
+
+- `store.pgm`
+- `store.yaml`
+- `store.png`
+- `store.json`
+
+Current workflow:
+
+1. Copy your ROS map files into `apps/cart-edge/public/maps` as `store.pgm` and `store.yaml`.
+2. Run:
+
+```bash
+npm run map:convert
+```
+
+That script:
+
+- reads `store.pgm`
+- reads `store.yaml`
+- generates `store.png`
+- generates `store.json`
+- preserves the map dimensions
+- colors occupied cells dark, free cells light, and unknown cells light gray
+
+`store.json` shape:
+
+```json
+{
+  "imageUrl": "/maps/store.png",
+  "resolution": 0.05,
+  "origin": [0.0, 0.0, 0.0],
+  "width": 168,
+  "height": 186
+}
+```
+
+Important:
+
+- The repo includes a placeholder `apps/cart-edge/public/maps/store.yaml` if your original ROS YAML was not present on this machine.
+- Replace that file with the real ROS YAML from your localization workspace and rerun `npm run map:convert` for exact meter-to-pixel alignment.
+
+## Install
+
+```bash
 npm install
+```
+
+## Run cart-edge
+
+```bash
+npm run dev:edge
+```
+
+or:
+
+```bash
+npm run dev -w @carto/cart-edge
+```
+
+`cart-edge` serves:
+
+- HTTP API on `http://<host>:4000`
+- WebSocket on `ws://<public-host>:4000/ws`
+- static map files on `/maps`
+
+Examples:
+
+- `GET /maps/store.png`
+- `GET /maps/store.json`
+
+## Run cart-screen
+
+Set these environment variables for the screen:
+
+```env
+EXPO_PUBLIC_CART_EDGE_HTTP_URL=http://<PI_IP>:4000
+EXPO_PUBLIC_CART_EDGE_WS_URL=ws://<PI_IP>:4000/ws
+```
+
+Then run:
+
+```bash
+npm run dev:screen
+```
+
+The screen will:
+
+- keep using WebSocket snapshots from `cart-edge`
+- load the real map image from `EXPO_PUBLIC_CART_EDGE_HTTP_URL/maps/store.png`
+- overlay the live cart marker using `snapshot.position.pixelX`, `snapshot.position.pixelY`, and `snapshot.position.yawRad`
+- fall back to the route overview panel when live LiDAR pose data is not available yet
+
+## Run the ROS Pose Bridge
+
+The ROS package lives in:
+
+`apps/carto-ros-bridge`
+
+Copy or symlink it into your ROS workspace:
+
+```bash
+cp -r apps/carto-ros-bridge ~/lidar_ws/src/carto_pose_bridge
+```
+
+Then build it:
+
+```bash
+cd ~/lidar_ws
+colcon build --packages-select carto_pose_bridge
+source install/setup.bash
+```
+
+Run it:
+
+```bash
+ros2 run carto_pose_bridge pose_bridge --ros-args \
+  -p edge_url:=http://localhost:4000/dev/pose \
+  -p topic:=/amcl_pose
+```
+
+Supported parameters:
+
+- `edge_url` default `http://localhost:4000/dev/pose`
+- `topic` default `/amcl_pose`
+- `publish_hz` default `5.0`
+
+The node:
+
+- subscribes to `geometry_msgs/PoseWithCovarianceStamped`
+- converts quaternion orientation to yaw radians
+- POSTs `{ "x": ..., "y": ..., "yaw": ... }` to `cart-edge`
+- throttles updates to about 5 Hz
+
+## Runtime Flow
+
+1. ROS 2 publishes `/amcl_pose`.
+2. `carto_pose_bridge` reads the pose and yaw.
+3. `carto_pose_bridge` POSTs to `http://localhost:4000/dev/pose`.
+4. `cart-edge` loads `store.json`, projects meters to map pixels, updates the session position, persists it, and broadcasts a fresh `cart.snapshot`.
+5. `cart-screen` receives the snapshot over WebSocket and redraws the live marker on the real store map.
+
+## Position Model
+
+The shared `Position` model keeps the original fields:
+
+- `nodeId`
+- `x`
+- `y`
+
+and now supports optional real-localization fields:
+
+- `xMeters`
+- `yMeters`
+- `yawRad`
+- `pixelX`
+- `pixelY`
+- `source`
+- `updatedAt`
+
+`source` is either:
+
+- `"simulator"`
+- `"lidar"`
+
+Compatibility is preserved:
+
+- BLE QR flow still works
+- dev session reset still works
+- `/dev/move` still works
+- shopping list, cart, checkout, and payment logic still live only in `cart-edge`
+- the WebSocket snapshot protocol is unchanged except for added optional fields
+
+## Key Endpoints
+
+Standard:
+
+- `GET /health`
+- `GET /pairing/current`
+
+Development:
+
+- `GET /dev/snapshot`
+- `POST /dev/snapshot`
+- `GET /dev/catalog`
+- `POST /dev/session/reset`
+- `POST /dev/bluetooth/list`
+- `POST /dev/scan`
+- `POST /dev/remove`
+- `POST /dev/move`
+- `POST /dev/pose`
+- `POST /dev/checkout/start`
+- `POST /dev/checkout`
+- `POST /dev/checkout/cancel`
+- `POST /dev/payment/success`
+- `POST /dev/payment/failure`
+
+## Test the Pose Endpoint
+
+```bash
+curl -X POST http://localhost:4000/dev/pose \
+  -H "Content-Type: application/json" \
+  -d '{"x":1.2,"y":-0.4,"yaw":1.57}'
+```
+
+Then verify:
+
+```bash
+curl http://localhost:4000/dev/snapshot
+```
+
+You should see `position` include values like:
+
+```json
+{
+  "nodeId": "entrance",
+  "x": 1.2,
+  "y": -0.4,
+  "xMeters": 1.2,
+  "yMeters": -0.4,
+  "yawRad": 1.57,
+  "pixelX": 24,
+  "pixelY": 194,
+  "source": "lidar",
+  "updatedAt": "2026-05-14T12:00:00.000Z"
+}
+```
+
+## Typical Local Demo Flow
+
+Start the services:
+
+```bash
 npm run dev:edge
 npm run dev:screen
 ```
 
-Root scripts:
+Load a list:
 
-- `npm run dev:edge`: run the edge service.
-- `npm run dev:screen`: run the Expo screen.
-- `npm run dev`: run the edge service for local API work.
-- `npm run typecheck`: typecheck all workspaces.
-- `npm run build`: build shared types and the edge app.
+```bash
+curl -X GET http://localhost:4000/dev/list/sample
+```
 
-Edge package scripts:
+Drive a simulated node move:
 
-- `npm run dev -w @carto/cart-edge`
-- `npm run build -w @carto/cart-edge`
-- `npm run start -w @carto/cart-edge`
+```bash
+curl -X POST http://localhost:4000/dev/move \
+  -H "Content-Type: application/json" \
+  -d '{"nodeId":"dairy_01"}'
+```
+
+Switch to real localization input:
+
+```bash
+curl -X POST http://localhost:4000/dev/pose \
+  -H "Content-Type: application/json" \
+  -d '{"x":1.2,"y":-0.4,"yaw":1.57}'
+```
+
+## BLE / Shopping Compatibility
+
+The cart still keeps the original pairing and shopping flow:
+
+1. The screen displays the QR payload while state is `WAITING_FOR_LIST`.
+2. A phone pairs the cart.
+3. A shopping list arrives through BLE or the dev transport.
+4. `cart-edge` validates and stores it.
+5. The screen receives a fresh `cart.snapshot`.
+
+`cart-screen` still does not calculate totals, validate items, or own cart state locally.
 
 ## Environment
 
-Copy `apps/cart-edge/.env.example` for deployment reference. Defaults are safe if variables are missing.
+Edge:
 
 ```env
 PORT=4000
@@ -55,219 +310,66 @@ BLE_WRITE_CHARACTERISTIC_UUID=6e400002-b5a3-f393-e0a9-e50e24dcca9e
 BLE_NOTIFY_CHARACTERISTIC_UUID=6e400003-b5a3-f393-e0a9-e50e24dcca9e
 ```
 
-The edge listens on `HOST` and `PORT`. `CART_EDGE_PUBLIC_HOST` is used only for the development HTTP fallback URL. The official QR payload is BLE-first.
-
-The screen WebSocket URL can be set with:
+Screen:
 
 ```env
+EXPO_PUBLIC_CART_EDGE_HTTP_URL=http://localhost:4000
 EXPO_PUBLIC_CART_EDGE_WS_URL=ws://localhost:4000/ws
+EXPO_PUBLIC_CUSTOMER_WEBAPP_URL=https://carto.com
 ```
 
-## Standard Endpoints
+## Validation Commands
 
-- `GET /health`
-- `GET /pairing/current`
-
-Development endpoints:
-
-- `GET /dev/snapshot`
-- `GET /dev/catalog`
-- `POST /dev/session/reset`
-- `POST /dev/bluetooth/list`
-- `POST /pairing/:pairingCode/list` development HTTP fallback for QR testing
-- `POST /dev/scan`
-- `POST /dev/remove`
-- `POST /dev/move`
-- `POST /dev/checkout/start`
-- `POST /dev/payment/success`
-- `POST /dev/payment/failure`
-
-Backward-compatible endpoints currently kept:
-
-- `POST /dev/snapshot`
-- `POST /dev/checkout`
-
-## Final BLE QR Flow
-
-1. Cart screen displays the BLE QR payload.
-2. Phone scans the QR code.
-3. Phone connects to `bluetoothDeviceName`, for example `Carto-cart-01`.
-4. Phone writes UTF-8 shopping-list JSON to `writeCharacteristicUuid`.
-5. Cart edge validates `pairingCode` against the active session.
-6. Cart edge receives the list, persists the session, broadcasts `cart.snapshot`, and starts `SHOPPING`.
-
-QR payload:
-
-```json
-{
-  "cartId": "cart-01",
-  "sessionId": "...",
-  "pairingCode": "123456",
-  "transport": "ble",
-  "bluetoothDeviceName": "Carto-cart-01",
-  "serviceUuid": "6e400001-b5a3-f393-e0a9-e50e24dcca9e",
-  "writeCharacteristicUuid": "6e400002-b5a3-f393-e0a9-e50e24dcca9e",
-  "notifyCharacteristicUuid": "6e400003-b5a3-f393-e0a9-e50e24dcca9e",
-  "expiresAt": "2026-04-29T12:00:00.000Z"
-}
+```bash
+npm run typecheck
+npm run build
 ```
 
-The phone writes:
+Optional map regeneration:
 
-```json
-{
-  "pairingCode": "123456",
-  "listId": "list-001",
-  "source": "external-web-app",
-  "items": [
-    { "productId": "p_milk", "name": "Milk 1L", "quantity": 2 }
-  ],
-  "createdAt": "2026-04-29T12:00:00.000Z"
-}
+```bash
+npm run map:convert
 ```
 
-## Laptop Development Mode
+## Troubleshooting
 
-Real BLE receiving is not expected to run on a Windows laptop. Use:
+If the marker does not move:
 
-```env
-BLUETOOTH_MODE=simulator
-```
+- check that `/amcl_pose` is publishing
+- check that `ros2 run carto_pose_bridge pose_bridge ...` is running
+- check `POST /dev/pose` manually with `curl`
+- check `GET /dev/snapshot` and confirm `position.source` is `"lidar"`
 
-In simulator mode the edge keeps the same dev endpoints and does not require BLE hardware. Use `POST /dev/bluetooth/list` for fast local testing, or `POST /pairing/:pairingCode/list` as a development HTTP fallback after reading `receiveListUrl` from `GET /pairing/current`.
+If the map image does not load:
 
-## Demo Flow
+- check `GET /maps/store.png`
+- check `GET /maps/store.json`
+- rerun `npm run map:convert`
+- make sure `EXPO_PUBLIC_CART_EDGE_HTTP_URL` points to the correct edge host
 
-Start edge and screen in separate terminals:
+If the screen cannot connect:
 
-```powershell
-npm run dev:edge
-npm run dev:screen
-```
+- check `EXPO_PUBLIC_CART_EDGE_WS_URL`
+- check `GET /health`
+- check that the device running the screen can reach the Pi IP and port
 
-## Cart Screen UI Flow
+If `/dev/pose` fails:
 
-The Expo cart screen renders only the latest snapshot received from `cart-edge`.
+- confirm `store.json` exists in `apps/cart-edge/public/maps`
+- confirm the request body uses finite numbers
+- confirm the map metadata came from the correct ROS YAML
 
-1. Start the edge service and the screen app.
-2. While the snapshot state is `WAITING_FOR_LIST`, the screen shows a dedicated QR-only pairing view.
-3. Send a shopping list through BLE or the development transport.
-4. `cart-edge` validates and stores the list, then broadcasts a new snapshot with state `SHOPPING`.
-5. The QR view disappears and the tablet shopping layout appears with three panels: shopping list, store map placeholder, and cart totals.
+If the live marker looks offset:
 
-The screen does not calculate totals, validate products, update list status, or keep shopping-list state locally. Those values must come from `cart-edge` in the snapshot.
-
-Health:
-
-```powershell
-Invoke-RestMethod http://localhost:4000/health
-```
-
-Get active pairing:
-
-```powershell
-$pairing = Invoke-RestMethod http://localhost:4000/pairing/current
-$pairing
-```
-
-Send a shopping list through the dev transport:
-
-```powershell
-$list = @{
-  listId = "list-001"
-  source = "external-web-app"
-  pairingCode = $pairing.pairingCode
-  items = @(
-    @{ productId = "p_milk"; name = "Milk 1L"; quantity = 2 },
-    @{ productId = "p_bread"; name = "Bread"; quantity = 1 }
-  )
-  createdAt = (Get-Date).ToUniversalTime().ToString("o")
-} | ConvertTo-Json -Depth 5
-
-Invoke-RestMethod -Method Post http://localhost:4000/dev/bluetooth/list -ContentType "application/json" -Body $list
-```
-
-Development HTTP fallback:
-
-```powershell
-Invoke-RestMethod -Method Post -Uri $pairing.receiveListUrl -ContentType "application/json" -Body $list
-```
-
-Scan products:
-
-```powershell
-Invoke-RestMethod -Method Post http://localhost:4000/dev/scan -ContentType "application/json" -Body '{"barcode":"622100000001"}'
-Start-Sleep -Milliseconds 900
-Invoke-RestMethod -Method Post http://localhost:4000/dev/scan -ContentType "application/json" -Body '{"productId":"p_bread"}'
-```
-
-Remove a product:
-
-```powershell
-Invoke-RestMethod -Method Post http://localhost:4000/dev/remove -ContentType "application/json" -Body '{"productId":"p_milk"}'
-```
-
-Move the cart:
-
-```powershell
-Invoke-RestMethod -Method Post http://localhost:4000/dev/move -ContentType "application/json" -Body '{"nodeId":"dairy_01"}'
-```
-
-Checkout and payment:
-
-```powershell
-Invoke-RestMethod -Method Post http://localhost:4000/dev/checkout/start
-Invoke-RestMethod -Method Post http://localhost:4000/dev/payment/success
-```
-
-Reset the session:
-
-```powershell
-Invoke-RestMethod -Method Post http://localhost:4000/dev/session/reset
-```
-
-## Pairing Test
-
-`GET /pairing/current` returns:
-
-```json
-{
-  "cartId": "cart-01",
-  "sessionId": "...",
-  "pairingCode": "123456",
-  "transport": "ble",
-  "bluetoothDeviceName": "Carto-cart-01",
-  "serviceUuid": "6e400001-b5a3-f393-e0a9-e50e24dcca9e",
-  "writeCharacteristicUuid": "6e400002-b5a3-f393-e0a9-e50e24dcca9e",
-  "notifyCharacteristicUuid": "6e400003-b5a3-f393-e0a9-e50e24dcca9e",
-  "receiveListUrl": "http://localhost:4000/pairing/123456/list",
-  "expiresAt": "2026-04-29T12:00:00.000Z",
-  "qrPayload": "{\"cartId\":\"cart-01\",...}"
-}
-```
-
-The QR payload is the JSON string form of the BLE object. `receiveListUrl` is metadata for development fallback and is not part of the QR payload.
-
-## Raspberry Pi BLE Mode
-
-Use these values on the Raspberry Pi:
-
-```env
-BLUETOOTH_MODE=ble
-BLUETOOTH_DEVICE_NAME=Carto-cart-01
-BLE_SERVICE_UUID=6e400001-b5a3-f393-e0a9-e50e24dcca9e
-BLE_WRITE_CHARACTERISTIC_UUID=6e400002-b5a3-f393-e0a9-e50e24dcca9e
-BLE_NOTIFY_CHARACTERISTIC_UUID=6e400003-b5a3-f393-e0a9-e50e24dcca9e
-```
-
-The real BLE receiver is prepared behind `BleShoppingListTransport`, but the BlueZ GATT server implementation is still marked with TODOs. On unsupported laptop OSes, `BLUETOOTH_MODE=ble` exits with: `Real BLE receiver requires Raspberry Pi/Linux BlueZ. Use BLUETOOTH_MODE=simulator on laptop.`
+- replace the placeholder `store.yaml` with the real ROS map YAML
+- rerun `npm run map:convert`
+- verify `resolution` and `origin` in `store.json`
 
 ## Raspberry Pi Notes
 
 - Install Node.js 20 or newer.
 - Set `HOST=0.0.0.0`.
 - Set `CART_EDGE_PUBLIC_HOST` to the Pi hostname or LAN IP.
-- Set `BLUETOOTH_MODE=ble` only when the Raspberry Pi BlueZ implementation is ready.
 - Keep `STORAGE_DIR` on a writable local path.
 - Build with `npm run build`.
 - Use `deploy/raspberry-pi/carto-edge.service.example` as the systemd template.

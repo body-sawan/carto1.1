@@ -5,7 +5,7 @@ import { useCartSocket } from "../realtime/useCartSocket";
 import { useCartUiStore } from "../store/cartUiStore";
 import { QRCodePanel } from "../components/QRCodePanel";
 import { ShoppingListPanel } from "../components/ShoppingListPanel";
-import { StoreMapPlaceholderPanel } from "../components/StoreMapPlaceholderPanel";
+import { RealStoreMapPanel } from "../components/RealStoreMapPanel";
 import { CartItemsPanel } from "../components/CartItemsPanel";
 import { ConnectionStatus } from "../components/ConnectionStatus";
 import { SmartReceiptScreen } from "../components/SmartReceiptScreen";
@@ -60,7 +60,7 @@ export function CartScreen() {
               <ShoppingListPanel snapshot={snapshot} />
             </View>
             <View style={styles.middlePanel}>
-              <StoreMapPlaceholderPanel />
+              <RealStoreMapPanel snapshot={snapshot} />
             </View>
             <View style={styles.rightPanel}>
               <CartItemsPanel snapshot={snapshot} connected={connected} onCheckout={startCheckout} />
