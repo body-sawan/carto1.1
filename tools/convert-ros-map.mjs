@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import zlib from "node:zlib";
@@ -18,6 +18,9 @@ const palette = {
 };
 
 async function main() {
+  await mkdir(mapsDir, { recursive: true });
+  await assertRequiredMapInputs();
+
   const [pgmBuffer, yamlText] = await Promise.all([
     readFile(sourcePgmPath),
     readFile(sourceYamlPath, "utf8")
@@ -43,6 +46,17 @@ async function main() {
   console.log(`Wrote ${path.relative(repoRoot, outputJsonPath)} (${pgm.width}x${pgm.height}, resolution ${rosMap.resolution})`);
 }
 
+async function assertRequiredMapInputs() {
+  try {
+    await Promise.all([
+      access(sourceYamlPath),
+      access(sourcePgmPath)
+    ]);
+  } catch {
+    throw new Error("Missing map files. Put store.yaml and store.pgm in apps/cart-edge/public/maps then run npm run map:convert");
+  }
+}
+
 function parseRosMapYaml(text) {
   const values = new Map();
 
@@ -54,7 +68,7 @@ function parseRosMapYaml(text) {
     if (separatorIndex < 0) continue;
 
     const key = line.slice(0, separatorIndex).trim();
-    const value = line.slice(separatorIndex + 1).trim();
+    const value = line.slice(separatorIndex + 1).trim().replace(/\s+#.*$/u, "");
     values.set(key, value);
   }
 

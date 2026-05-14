@@ -11,7 +11,7 @@ import { CheckoutManager } from "./core/checkoutManager.js";
 import { ReceiptEngine } from "./core/receiptEngine.js";
 import { CartSessionStateError, SessionManager } from "./core/sessionManager.js";
 import { ShoppingListEngine, ShoppingListValidationError } from "./core/shoppingListEngine.js";
-import { loadMapMetadata, worldToPixel, type StoreMapMetadata } from "./navigation/mapProjection.js";
+import { loadMapMetadata, worldToPixel } from "./navigation/mapProjection.js";
 import { RoutePlanner } from "./navigation/routePlanner.js";
 import { PositionSimulator } from "./navigation/positionSimulator.js";
 import { PaymentSimulator } from "./payments/paymentSimulator.js";
@@ -85,17 +85,21 @@ async function main() {
   const server = http.createServer(app);
   const screenServer = new ScreenSocketServer(server, sessionManager);
   screenServer.start();
-  let cachedMapMetadata: StoreMapMetadata | null = null;
   const getStoreMapMetadata = async () => {
-    if (!cachedMapMetadata) {
-      try {
-        cachedMapMetadata = await loadMapMetadata(storeMapMetadataPath);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        throw new HttpError(503, "MAP_METADATA_UNAVAILABLE", `Store map metadata is unavailable: ${message}`);
+    try {
+      return await loadMapMetadata(storeMapMetadataPath);
+    } catch (error) {
+      if (isMissingFileError(error)) {
+        throw new HttpError(
+          500,
+          "MAP_METADATA_NOT_FOUND",
+          "Map metadata not found. Run npm run map:convert after placing store.yaml and store.pgm."
+        );
       }
+
+      const message = error instanceof Error ? error.message : String(error);
+      throw new HttpError(500, "MAP_METADATA_INVALID", `Store map metadata is invalid: ${message}`);
     }
-    return cachedMapMetadata;
   };
   const makeIncomingShoppingListHandler = (requirePairingCode: boolean) => async (payload: unknown) => {
     try {
@@ -153,6 +157,8 @@ async function main() {
   app.get("/dev/catalog", (_req, res) => res.json({ products: catalog.all() }));
   app.get("/dev/session/reset", handle(respond(async () => sessionManager.startNewSession(), screenServer)));
   app.post("/dev/session/reset", handle(respond(async () => sessionManager.startNewSession(), screenServer)));
+  app.get("/dev/reset", handle(respond(async () => sessionManager.startNewSession(), screenServer)));
+  app.post("/dev/reset", handle(respond(async () => sessionManager.startNewSession(), screenServer)));
   app.get("/dev/list/sample", handle(async (_req, res) => {
     const next = await shoppingListReceiver.receive(createSampleShoppingList());
     screenServer.broadcastSnapshot();
@@ -306,6 +312,12 @@ function toHttpError(error: unknown): HttpError {
 
   const message = error instanceof Error ? error.message : "Unknown error";
   return new HttpError(500, "ERROR", message);
+}
+
+function isMissingFileError(error: unknown): boolean {
+  return error instanceof Error
+    && "code" in error
+    && (error as NodeJS.ErrnoException).code === "ENOENT";
 }
 
 function formatDevPoseValidationMessage(error: z.ZodError): string {

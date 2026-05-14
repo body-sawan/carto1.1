@@ -1,4 +1,4 @@
-import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { ActivityIndicator, Image, StyleSheet, Text, View, type LayoutChangeEvent } from "react-native";
 import { Navigation } from "lucide-react-native";
 import { CART_EDGE_HTTP_URL } from "../realtime/config";
@@ -15,6 +15,11 @@ interface StoreMapAssetMetadata {
 interface ViewportSize {
   width: number;
   height: number;
+}
+
+interface MarkerPosition {
+  left: number;
+  top: number;
 }
 
 const FALLBACK_NODES = [
@@ -34,12 +39,15 @@ export function RealStoreMapPanel({ snapshot }: { snapshot: CartSnapshot | null 
   const [imageFailed, setImageFailed] = useState(false);
   const [viewport, setViewport] = useState<ViewportSize>({ width: 0, height: 0 });
 
+  const metadataUrl = `${CART_EDGE_HTTP_URL}/maps/store.json`;
+  const imageUrl = metadata ? `${CART_EDGE_HTTP_URL}${metadata.imageUrl}` : `${CART_EDGE_HTTP_URL}/maps/store.png`;
+
   useEffect(() => {
     let cancelled = false;
 
     async function loadMetadata() {
       try {
-        const response = await fetch(`${CART_EDGE_HTTP_URL}/maps/store.json`);
+        const response = await fetch(metadataUrl);
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
         }
@@ -52,11 +60,15 @@ export function RealStoreMapPanel({ snapshot }: { snapshot: CartSnapshot | null 
         if (!cancelled) {
           setMetadata(payload);
           setMetadataError(null);
+          setImageReady(false);
+          setImageFailed(false);
         }
       } catch (error) {
         if (!cancelled) {
           setMetadata(null);
           setMetadataError(error instanceof Error ? error.message : "Unable to load store map metadata.");
+          setImageReady(false);
+          setImageFailed(false);
         }
       }
     }
@@ -66,30 +78,38 @@ export function RealStoreMapPanel({ snapshot }: { snapshot: CartSnapshot | null 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [metadataUrl]);
 
   const routeSteps = snapshot?.route.path ?? snapshot?.route.nodes ?? [];
   const routeNodeIds = new Set(routeSteps);
   const nextTargetLabel = fallbackNodeLabel(snapshot?.route.nextTarget);
   const nextItem = snapshot?.shoppingList.find((item) => item.status === "PENDING" || item.status === "PARTIAL") ?? null;
-  const poseSource = snapshot?.position.source === "lidar" ? "LiDAR live" : "Simulator";
+  const sourceLabel = snapshot?.position.source === "lidar" ? "LiDAR" : "Simulator";
   const updatedLabel = formatTime(snapshot?.position.updatedAt);
-  const hasRealPose = isFiniteNumber(snapshot?.position.pixelX) && isFiniteNumber(snapshot?.position.pixelY);
   const mapSize = metadata ? fitInside(viewport, metadata.width, metadata.height) : null;
-  const shouldUseRealMap = Boolean(metadata && hasRealPose && !imageFailed);
+  const markerPosition = useMemo(
+    () => getMarkerPosition(snapshot, metadata, mapSize),
+    [mapSize, metadata, snapshot]
+  );
+  const canShowRealMap = Boolean(metadata && !imageFailed);
   const routeSummary = routeSteps.length > 0 ? routeSteps.map(fallbackNodeLabel).join(" -> ") : "Waiting for shopping list";
+  const statusText = metadataError
+    ? "Map unavailable"
+    : snapshot?.position.source === "lidar"
+      ? (markerPosition ? "Live position" : "Waiting for live position")
+      : "Route preview";
 
   return (
     <View style={styles.panel}>
-        <View style={styles.header}>
+      <View style={styles.header}>
         <View style={styles.titleBlock}>
           <Text style={styles.title}>Store Map</Text>
-          <Text style={styles.subtitle}>{shouldUseRealMap ? "You are here" : "Route overview"}</Text>
+          <Text style={styles.subtitle}>{canShowRealMap ? "You are here" : "Route overview"}</Text>
         </View>
         <View style={styles.headerBadges}>
           <View style={[styles.badge, snapshot?.position.source === "lidar" ? styles.badgeSuccess : styles.badgeNeutral]}>
             <Text style={[styles.badgeText, snapshot?.position.source === "lidar" ? styles.badgeSuccessText : styles.badgeNeutralText]}>
-              {poseSource}
+              {sourceLabel}
             </Text>
           </View>
           {updatedLabel ? (
@@ -116,55 +136,67 @@ export function RealStoreMapPanel({ snapshot }: { snapshot: CartSnapshot | null 
       </View>
 
       <View style={styles.mapCard}>
-        {shouldUseRealMap && metadata ? (
+        {canShowRealMap && metadata ? (
           <View style={styles.mapViewport} onLayout={(event) => handleViewportLayout(event, setViewport)}>
             {mapSize ? (
               <View style={[styles.mapSurface, { width: mapSize.width, height: mapSize.height }]}>
-              <Image
-                source={{ uri: `${CART_EDGE_HTTP_URL}${metadata.imageUrl}` }}
-                style={styles.mapImage}
-                resizeMode="stretch"
-                onLoad={() => setImageReady(true)}
-                onError={() => {
-                  setImageFailed(true);
-                  setImageReady(false);
-                }}
-              />
+                <Image
+                  source={{ uri: imageUrl }}
+                  style={styles.mapImage}
+                  resizeMode="stretch"
+                  onLoad={() => setImageReady(true)}
+                  onError={() => {
+                    setImageReady(false);
+                    setImageFailed(true);
+                  }}
+                />
 
-              {!imageReady ? (
-                <View style={styles.loadingOverlay}>
-                  <ActivityIndicator size="small" color="#155eef" />
-                </View>
-              ) : null}
-
-              <View
-                style={[
-                  styles.markerWrap,
-                  {
-                    left: (snapshot?.position.pixelX ?? 0) * mapSize.width / metadata.width,
-                    top: (snapshot?.position.pixelY ?? 0) * mapSize.height / metadata.height
-                  }
-                ]}
-              >
-                <Text style={styles.markerLabel}>You are here</Text>
-                <View style={styles.markerPin}>
-                  <View style={[styles.headingIconWrap, { transform: [{ rotate: `${((snapshot?.position.yawRad ?? 0) * 180) / Math.PI}deg` }] }]}>
-                    <Navigation size={18} color="#ffffff" strokeWidth={2.5} />
+                {!imageReady ? (
+                  <View style={styles.loadingOverlay}>
+                    <ActivityIndicator size="small" color="#155eef" />
                   </View>
-                </View>
-              </View>
+                ) : null}
 
-              <View style={styles.overlayCard}>
-                <Text style={styles.overlayTitle}>Next stop</Text>
-                <Text style={styles.overlayValue}>{nextTargetLabel}</Text>
-                <View style={styles.routeChipRow}>
-                  {routeSteps.slice(0, 4).map((nodeId) => (
-                    <View key={nodeId} style={styles.routeChip}>
-                      <Text style={styles.routeChipText}>{fallbackNodeLabel(nodeId)}</Text>
+                {markerPosition ? (
+                  <View
+                    style={[
+                      styles.markerWrap,
+                      {
+                        left: markerPosition.left,
+                        top: markerPosition.top
+                      }
+                    ]}
+                  >
+                    <Text style={styles.markerLabel}>You are here</Text>
+                    <View style={styles.markerPin}>
+                      <View style={[styles.headingIconWrap, { transform: [{ rotate: `${((snapshot?.position.yawRad ?? 0) * 180) / Math.PI}deg` }] }]}>
+                        <Navigation size={18} color="#ffffff" strokeWidth={2.5} />
+                      </View>
                     </View>
-                  ))}
+                  </View>
+                ) : null}
+
+                <View style={styles.overlayCard}>
+                  <View style={styles.overlayTopLine}>
+                    <Text style={styles.overlayTitle}>Status</Text>
+                    <Text style={styles.overlayStatus}>{statusText}</Text>
+                  </View>
+                  <Text style={styles.overlayValue}>{nextTargetLabel}</Text>
+                  <View style={styles.routeChipRow}>
+                    {routeSteps.slice(0, 4).map((nodeId) => (
+                      <View key={nodeId} style={styles.routeChip}>
+                        <Text style={styles.routeChipText}>{fallbackNodeLabel(nodeId)}</Text>
+                      </View>
+                    ))}
+                  </View>
+                  {!markerPosition ? (
+                    <Text style={styles.overlayHint}>
+                      {snapshot?.position.source === "lidar"
+                        ? "Waiting for cart-edge to receive pixel coordinates from /dev/pose."
+                        : "The route view will switch to a live marker as soon as LiDAR pose data arrives."}
+                    </Text>
+                  ) : null}
                 </View>
-              </View>
               </View>
             ) : (
               <ActivityIndicator size="small" color="#155eef" />
@@ -197,7 +229,9 @@ export function RealStoreMapPanel({ snapshot }: { snapshot: CartSnapshot | null 
               );
             })}
             <Text style={styles.fallbackHint}>
-              {metadataError ? "Check /maps/store.json and /maps/store.png." : "The real map switches on as soon as cart-edge starts receiving /dev/pose updates."}
+              {metadataError
+                ? "Check /maps/store.json and /maps/store.png. Run npm run map:convert after placing store.yaml and store.pgm."
+                : "The real map switches on as soon as cart-edge starts receiving /dev/pose updates."}
             </Text>
           </View>
         )}
@@ -206,6 +240,20 @@ export function RealStoreMapPanel({ snapshot }: { snapshot: CartSnapshot | null 
       <Text style={styles.routeSummary}>{routeSummary}</Text>
     </View>
   );
+}
+
+function getMarkerPosition(
+  snapshot: CartSnapshot | null,
+  metadata: StoreMapAssetMetadata | null,
+  mapSize: ViewportSize | null
+): MarkerPosition | null {
+  if (!snapshot || !metadata || !mapSize) return null;
+  if (!isFiniteNumber(snapshot.position.pixelX) || !isFiniteNumber(snapshot.position.pixelY)) return null;
+
+  return {
+    left: (snapshot.position.pixelX * mapSize.width) / metadata.width,
+    top: (snapshot.position.pixelY * mapSize.height) / metadata.height
+  };
 }
 
 function handleViewportLayout(event: LayoutChangeEvent, setViewport: Dispatch<SetStateAction<ViewportSize>>) {
@@ -273,7 +321,7 @@ const styles = StyleSheet.create({
   badgeNeutral: { backgroundColor: "#e0e7ff" },
   badgeNeutralText: { color: "#3730a3" },
   badgeSlate: { backgroundColor: "#e2e8f0" },
-  badgeSlateText: { color: "#334155" },
+  badgeSlateText: { color: "#334155", textTransform: "none" },
   summaryRow: { flexDirection: "row", gap: 10 },
   summaryCard: {
     flex: 1,
@@ -361,8 +409,11 @@ const styles = StyleSheet.create({
     padding: 12,
     gap: 8
   },
+  overlayTopLine: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8 },
   overlayTitle: { color: "#64748b", fontSize: 11, fontWeight: "800", textTransform: "uppercase" },
+  overlayStatus: { color: "#0f766e", fontSize: 11, fontWeight: "900" },
   overlayValue: { color: "#0f172a", fontSize: 17, fontWeight: "900" },
+  overlayHint: { color: "#475569", fontSize: 12, fontWeight: "700", lineHeight: 18 },
   routeChipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   routeChip: { borderRadius: 999, backgroundColor: "#dbeafe", paddingHorizontal: 10, paddingVertical: 6 },
   routeChipText: { color: "#1d4ed8", fontSize: 11, fontWeight: "900" },

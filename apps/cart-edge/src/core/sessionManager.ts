@@ -8,8 +8,6 @@ import type { ReceiptEngine } from "./receiptEngine.js";
 import type { RoutePlanner } from "../navigation/routePlanner.js";
 import type { PositionSimulator } from "../navigation/positionSimulator.js";
 import type { CheckoutManager } from "./checkoutManager.js";
-import { getMapNode } from "../navigation/storeMap.js";
-
 export interface LocalizedPoseUpdate {
   xMeters: number;
   yMeters: number;
@@ -215,7 +213,7 @@ export class SessionManager {
   async updateLocalizedPose(pose: LocalizedPoseUpdate): Promise<CartSession> {
     const session = this.current();
     const updatedAt = new Date().toISOString();
-    const nodeId = this.resolveCompatibleNodeId(session);
+    const nodeId = session.position.nodeId || "real_pose";
 
     this.session = {
       ...session,
@@ -287,18 +285,6 @@ export class SessionManager {
 
   private async persist() {
     await this.store.saveSession(this.current());
-  }
-
-  private resolveCompatibleNodeId(session: CartSession): string {
-    if (getMapNode(session.position.nodeId)) {
-      return session.position.nodeId;
-    }
-
-    if (session.route.nextTarget && getMapNode(session.route.nextTarget)) {
-      return session.route.nextTarget;
-    }
-
-    return "entrance";
   }
 
   private alert(level: "info" | "warning" | "error" | "success", message: string) {
