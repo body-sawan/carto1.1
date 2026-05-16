@@ -118,7 +118,7 @@ npm run dev:screen
 
 Do not run `npx expo start -c` from the repo root. That starts Expo in the monorepo root instead of `apps/cart-screen` and fails with `Unable to resolve "../../App" from "node_modules/expo/AppEntry.js"`.
 
-`npm run dev:screen` is the correct root command. It starts Expo from `apps/cart-screen` with `--web --clear`.
+`npm run dev:screen` is the correct root command. It runs the `@carto/cart-screen` workspace `dev` script, which starts Expo from `apps/cart-screen` with `--web --clear`.
 
 The middle map panel uses `RealStoreMapPanel` and:
 

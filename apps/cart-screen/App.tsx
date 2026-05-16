@@ -5,7 +5,7 @@ export default function App() {
   return (
     <>
       <CartScreen />
-      <StatusBar style="light" />
+      <StatusBar style="auto" />
     </>
   );
 }

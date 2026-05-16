@@ -11,7 +11,7 @@
     "dev:edge": "npm run dev -w @carto/cart-edge",
     "dev:cli": "npm run dev:cli -w @carto/cart-edge",
     "cart:cli": "npm run dev:cli",
-    "dev:screen": "npm run start -w @carto/cart-screen -- --web --clear",
+    "dev:screen": "npm run dev -w @carto/cart-screen",
     "dev": "npm run dev:edge",
     "map:convert": "node tools/convert-ros-map.mjs",
     "build:shared": "npm run build -w @carto/shared",

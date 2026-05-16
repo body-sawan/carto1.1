@@ -4,7 +4,7 @@
   "private": true,
   "main": "index.js",
   "scripts": {
-    "dev": "expo start --web",
+    "dev": "expo start --web --clear",
     "start": "expo start",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit"

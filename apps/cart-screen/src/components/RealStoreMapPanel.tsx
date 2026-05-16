@@ -197,7 +197,7 @@ export function RealStoreMapPanel({ snapshot }: { snapshot: CartSnapshot | null 
                   onError={(event) => {
                     const message = readImageErrorMessage(event);
                     setImageError(message);
-                    logDebug("[RealStoreMapPanel] image failed", `${imageUrl} (${message})`);
+                    logDebug("[RealStoreMapPanel] image load error", `${imageUrl} (${message})`);
                   }}
                 />
               ) : (
