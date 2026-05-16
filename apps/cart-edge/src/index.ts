@@ -159,7 +159,7 @@ async function main() {
   app.post("/dev/session/reset", handle(respond(async () => sessionManager.startNewSession(), screenServer)));
   app.get("/dev/reset", handle(respond(async () => sessionManager.startNewSession(), screenServer)));
   app.post("/dev/reset", handle(respond(async () => sessionManager.startNewSession(), screenServer)));
-  app.get("/dev/list/sample", handle(async (_req, res) => {
+  const handleSampleList = handle(async (_req, res) => {
     const next = await shoppingListReceiver.receive(createSampleShoppingList());
     screenServer.broadcastSnapshot();
     const response: CartAckResponse = {
@@ -171,7 +171,9 @@ async function main() {
       status: "list_received"
     };
     res.json(response);
-  }));
+  });
+  app.get("/dev/list/sample", handleSampleList);
+  app.post("/dev/list/sample", handleSampleList);
   app.post("/dev/bluetooth/list", handle(respond(async (req) => {
     await devShoppingListTransport.simulateIncomingShoppingList(req.body);
     return sessionManager.current();

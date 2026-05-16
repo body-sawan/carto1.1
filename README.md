@@ -116,6 +116,10 @@ Run the screen:
 npm run dev:screen
 ```
 
+Do not run `npx expo start -c` from the repo root. That starts Expo in the monorepo root instead of `apps/cart-screen` and fails with `Unable to resolve "../../App" from "node_modules/expo/AppEntry.js"`.
+
+`npm run dev:screen` is the correct root command. It starts Expo from `apps/cart-screen` with `--web --clear`.
+
 The middle map panel uses `RealStoreMapPanel` and:
 
 - loads `EXPO_PUBLIC_CART_EDGE_HTTP_URL/maps/store.png`
@@ -243,6 +247,8 @@ The snapshot protocol only adds optional pose fields. Existing fields stay compa
 - `GET /pairing/current`
 - `GET /dev/snapshot`
 - `POST /dev/snapshot`
+- `GET /dev/list/sample`
+- `POST /dev/list/sample`
 - `POST /dev/session/reset`
 - `GET /dev/reset`
 - `POST /dev/reset`
@@ -280,6 +286,43 @@ EXPO_PUBLIC_CART_EDGE_HTTP_URL=http://localhost:4000
 ```
 
 ## Troubleshooting
+
+PowerShell backend checks:
+
+```powershell
+Invoke-RestMethod -Uri "http://localhost:4000/health"
+Invoke-RestMethod -Uri "http://localhost:4000/maps/store.json"
+Invoke-WebRequest -Uri "http://localhost:4000/maps/store.png" -Method Head
+```
+
+Pose check:
+
+```powershell
+$body = @{
+  x = 1.2
+  y = -0.4
+  yaw = 1.57
+} | ConvertTo-Json
+
+Invoke-RestMethod -Uri "http://localhost:4000/dev/pose" -Method Post -ContentType "application/json" -Body $body
+
+$snapshot = Invoke-RestMethod -Uri "http://localhost:4000/dev/snapshot"
+$snapshot.position
+```
+
+Screen run:
+
+```powershell
+$env:EXPO_PUBLIC_CART_EDGE_WS_URL="ws://localhost:4000/ws"
+$env:EXPO_PUBLIC_CART_EDGE_HTTP_URL="http://localhost:4000"
+npm run dev:screen
+```
+
+Expected:
+
+- `/health` `screenClients` should become `1` after the screen opens.
+- the screen should show `Online`, not `Offline`.
+- the map should render instead of staying on an infinite spinner.
 
 If the marker does not move:
 

@@ -11,11 +11,13 @@
     "dev:edge": "npm run dev -w @carto/cart-edge",
     "dev:cli": "npm run dev:cli -w @carto/cart-edge",
     "cart:cli": "npm run dev:cli",
-    "dev:screen": "npm run dev -w @carto/cart-screen",
+    "dev:screen": "npm run start -w @carto/cart-screen -- --web --clear",
     "dev": "npm run dev:edge",
     "map:convert": "node tools/convert-ros-map.mjs",
-    "build": "npm run build -w @carto/shared && npm run build -w @carto/cart-edge",
-    "typecheck": "npm run typecheck --workspaces",
+    "build:shared": "npm run build -w @carto/shared",
+    "build:edge": "npm run build -w @carto/cart-edge",
+    "build": "npm run build:shared && npm run build:edge",
+    "typecheck": "npm run typecheck -w @carto/shared && npm run typecheck -w @carto/cart-edge && npm run typecheck -w @carto/cart-screen",
     "lint": "npm run lint --workspaces"
   },
   "engines": {

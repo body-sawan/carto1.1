@@ -1,4 +1,5 @@
 import type { ProtocolMessage, ScreenMessageType } from "@carto/shared";
+import { IS_DEV } from "./config";
 
 type Handler = (message: ProtocolMessage) => void;
 
@@ -6,6 +7,8 @@ export class CartSocketClient {
   private socket: WebSocket | null = null;
   private sequence = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectAttempts = 0;
+  private closedManually = false;
 
   constructor(
     private readonly url: string,
@@ -14,23 +17,78 @@ export class CartSocketClient {
   ) {}
 
   connect() {
-    this.socket = new WebSocket(this.url);
-    this.socket.onopen = () => {
+    if (this.socket && (this.socket.readyState === WebSocket.CONNECTING || this.socket.readyState === WebSocket.OPEN)) {
+      return;
+    }
+
+    this.closedManually = false;
+    logDebug("[cart-screen] connecting websocket ...", this.url);
+
+    const socket = new WebSocket(this.url);
+    this.socket = socket;
+
+    socket.onopen = () => {
+      if (this.socket !== socket) return;
+      this.reconnectAttempts = 0;
+      logDebug("[cart-screen] websocket open", this.url);
       this.onConnectionChange(true);
       this.send("screen.connected", {});
       this.send("screen.request_snapshot", {});
     };
-    this.socket.onmessage = (event) => this.onMessage(JSON.parse(event.data));
-    this.socket.onclose = () => {
-      this.onConnectionChange(false);
-      this.scheduleReconnect();
+
+    socket.onmessage = (event) => {
+      if (this.socket !== socket) return;
+      try {
+        const rawData = typeof event.data === "string" ? event.data : String(event.data);
+        const message = JSON.parse(rawData) as ProtocolMessage;
+        logDebug("[cart-screen] websocket message", message.type);
+        this.onMessage(message);
+      } catch (error) {
+        logError("[cart-screen] websocket message parse error", error);
+      }
     };
-    this.socket.onerror = () => this.onConnectionChange(false);
+
+    socket.onclose = (event) => {
+      if (this.socket === socket) {
+        this.socket = null;
+      }
+
+      this.onConnectionChange(false);
+
+      logDebug(
+        "[cart-screen] websocket close",
+        `code=${event.code}`,
+        event.reason ? `reason=${event.reason}` : "reason=<none>"
+      );
+
+      if (!this.closedManually) {
+        this.scheduleReconnect();
+      }
+    };
+
+    socket.onerror = (event) => {
+      if (this.socket !== socket) return;
+      this.onConnectionChange(false);
+      logError("[cart-screen] websocket error", event);
+    };
   }
 
   close() {
-    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
-    this.socket?.close();
+    this.closedManually = true;
+    this.reconnectAttempts = 0;
+
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
+    const socket = this.socket;
+    this.socket = null;
+    this.onConnectionChange(false);
+
+    if (socket && (socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN)) {
+      socket.close();
+    }
   }
 
   send(type: ScreenMessageType, payload: unknown) {
@@ -69,10 +127,25 @@ export class CartSocketClient {
   }
 
   private scheduleReconnect() {
-    if (this.reconnectTimer) return;
+    if (this.closedManually || this.reconnectTimer) return;
+
+    const delayMs = Math.min(5000, 1500 + (this.reconnectAttempts * 500));
+    this.reconnectAttempts += 1;
+    logDebug("[cart-screen] websocket reconnect scheduled", `${delayMs}ms`);
+
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.connect();
-    }, 1500);
+    }, delayMs);
   }
+}
+
+function logDebug(...args: unknown[]) {
+  if (!IS_DEV) return;
+  console.log(...args);
+}
+
+function logError(...args: unknown[]) {
+  if (!IS_DEV) return;
+  console.error(...args);
 }

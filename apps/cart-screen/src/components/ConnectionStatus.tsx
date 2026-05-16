@@ -10,6 +10,7 @@ interface ConnectionStatusProps {
 
 export function ConnectionStatus({ connected, snapshot, lastUpdateAt, variant = "bar" }: ConnectionStatusProps) {
   const lastUpdate = lastUpdateAt ? new Date(lastUpdateAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "not synced";
+  const stateLabel = formatStateLabel(snapshot?.state, connected);
 
   return (
     <View style={[styles.container, variant === "floating" && styles.floating]}>
@@ -17,15 +18,26 @@ export function ConnectionStatus({ connected, snapshot, lastUpdateAt, variant = 
         <Text style={styles.brand}>Carto</Text>
         <View style={styles.statusGroup}>
           <View style={[styles.dot, connected ? styles.onlineDot : styles.offlineDot]} />
-          <Text style={styles.statusText}>{connected ? "Connected" : "Offline"}</Text>
+          <Text style={styles.statusText}>{connected ? "Online" : "Offline"}</Text>
         </View>
       </View>
       <View style={styles.metaGroup}>
-        <Text style={styles.state}>{snapshot?.state ?? "BOOTING"}</Text>
+        <Text style={styles.state}>{stateLabel}</Text>
         <Text style={styles.lastUpdate}>Updated {lastUpdate}</Text>
       </View>
     </View>
   );
+}
+
+function formatStateLabel(state: CartSnapshot["state"] | undefined, connected: boolean) {
+  if (!state) return connected ? "Syncing" : "Booting";
+  if (state === "WAITING_FOR_LIST") return "Ready";
+
+  return state
+    .toLowerCase()
+    .split("_")
+    .map((segment) => segment.slice(0, 1).toUpperCase() + segment.slice(1))
+    .join(" ");
 }
 
 const styles = StyleSheet.create({

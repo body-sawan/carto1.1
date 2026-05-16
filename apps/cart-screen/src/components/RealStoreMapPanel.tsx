@@ -1,7 +1,15 @@
-import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
-import { ActivityIndicator, Image, StyleSheet, Text, View, type LayoutChangeEvent } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import {
+  ActivityIndicator,
+  Image,
+  StyleSheet,
+  Text,
+  View,
+  type ImageErrorEventData,
+  type NativeSyntheticEvent
+} from "react-native";
 import { Navigation } from "lucide-react-native";
-import { CART_EDGE_HTTP_URL } from "../realtime/config";
+import { CART_EDGE_HTTP_URL, IS_DEV } from "../realtime/config";
 import type { CartSnapshot } from "../store/cartUiStore";
 
 interface StoreMapAssetMetadata {
@@ -12,14 +20,10 @@ interface StoreMapAssetMetadata {
   height: number;
 }
 
-interface ViewportSize {
-  width: number;
-  height: number;
-}
-
 interface MarkerPosition {
-  left: number;
-  top: number;
+  leftPercent: number;
+  topPercent: number;
+  mode: "live" | "fallback";
 }
 
 const FALLBACK_NODES = [
@@ -34,18 +38,22 @@ const FALLBACK_NODES = [
 
 export function RealStoreMapPanel({ snapshot }: { snapshot: CartSnapshot | null }) {
   const [metadata, setMetadata] = useState<StoreMapAssetMetadata | null>(null);
+  const [metadataLoading, setMetadataLoading] = useState(true);
   const [metadataError, setMetadataError] = useState<string | null>(null);
-  const [imageReady, setImageReady] = useState(false);
-  const [imageFailed, setImageFailed] = useState(false);
-  const [viewport, setViewport] = useState<ViewportSize>({ width: 0, height: 0 });
+  const [imageError, setImageError] = useState<string | null>(null);
 
   const metadataUrl = `${CART_EDGE_HTTP_URL}/maps/store.json`;
-  const imageUrl = metadata ? `${CART_EDGE_HTTP_URL}${metadata.imageUrl}` : `${CART_EDGE_HTTP_URL}/maps/store.png`;
+  const imageUrl = resolveMapAssetUrl(CART_EDGE_HTTP_URL, metadata?.imageUrl ?? "/maps/store.png");
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadMetadata() {
+      setMetadataLoading(true);
+      setMetadataError(null);
+      setImageError(null);
+      logDebug("[RealStoreMapPanel] metadata url", metadataUrl);
+
       try {
         const response = await fetch(metadataUrl);
         if (!response.ok) {
@@ -59,16 +67,17 @@ export function RealStoreMapPanel({ snapshot }: { snapshot: CartSnapshot | null 
 
         if (!cancelled) {
           setMetadata(payload);
+          setMetadataLoading(false);
           setMetadataError(null);
-          setImageReady(false);
-          setImageFailed(false);
+          setImageError(null);
+          logDebug("[RealStoreMapPanel] metadata loaded", `${payload.width}x${payload.height}`);
         }
       } catch (error) {
         if (!cancelled) {
           setMetadata(null);
+          setMetadataLoading(false);
           setMetadataError(error instanceof Error ? error.message : "Unable to load store map metadata.");
-          setImageReady(false);
-          setImageFailed(false);
+          setImageError(null);
         }
       }
     }
@@ -80,23 +89,30 @@ export function RealStoreMapPanel({ snapshot }: { snapshot: CartSnapshot | null 
     };
   }, [metadataUrl]);
 
+  useEffect(() => {
+    logDebug("[RealStoreMapPanel] image url", imageUrl);
+  }, [imageUrl]);
+
   const routeSteps = snapshot?.route.path ?? snapshot?.route.nodes ?? [];
   const routeNodeIds = new Set(routeSteps);
   const nextTargetLabel = fallbackNodeLabel(snapshot?.route.nextTarget);
   const nextItem = snapshot?.shoppingList.find((item) => item.status === "PENDING" || item.status === "PARTIAL") ?? null;
   const sourceLabel = snapshot?.position.source === "lidar" ? "LiDAR" : "Simulator";
   const updatedLabel = formatTime(snapshot?.position.updatedAt);
-  const mapSize = metadata ? fitInside(viewport, metadata.width, metadata.height) : null;
+  const mapAspectRatio = metadata ? metadata.width / metadata.height : 1;
   const markerPosition = useMemo(
-    () => getMarkerPosition(snapshot, metadata, mapSize),
-    [mapSize, metadata, snapshot]
+    () => getMarkerPosition(snapshot, metadata),
+    [metadata, snapshot]
   );
-  const canShowRealMap = Boolean(metadata && !imageFailed);
+  const usingFallbackMarker = markerPosition?.mode === "fallback";
+  const canShowRealMap = Boolean(metadata);
   const routeSummary = routeSteps.length > 0 ? routeSteps.map(fallbackNodeLabel).join(" -> ") : "Waiting for shopping list";
   const statusText = metadataError
     ? "Map unavailable"
-    : snapshot?.position.source === "lidar"
-      ? (markerPosition ? "Live position" : "Waiting for live position")
+    : imageError
+      ? "Image unavailable"
+      : snapshot?.position.source === "lidar"
+        ? (usingFallbackMarker ? "Using aisle fallback" : "Live position")
       : "Route preview";
 
   return (
@@ -136,79 +152,16 @@ export function RealStoreMapPanel({ snapshot }: { snapshot: CartSnapshot | null 
       </View>
 
       <View style={styles.mapCard}>
-        {canShowRealMap && metadata ? (
-          <View style={styles.mapViewport} onLayout={(event) => handleViewportLayout(event, setViewport)}>
-            {mapSize ? (
-              <View style={[styles.mapSurface, { width: mapSize.width, height: mapSize.height }]}>
-                <Image
-                  source={{ uri: imageUrl }}
-                  style={styles.mapImage}
-                  resizeMode="stretch"
-                  onLoad={() => setImageReady(true)}
-                  onError={() => {
-                    setImageReady(false);
-                    setImageFailed(true);
-                  }}
-                />
-
-                {!imageReady ? (
-                  <View style={styles.loadingOverlay}>
-                    <ActivityIndicator size="small" color="#155eef" />
-                  </View>
-                ) : null}
-
-                {markerPosition ? (
-                  <View
-                    style={[
-                      styles.markerWrap,
-                      {
-                        left: markerPosition.left,
-                        top: markerPosition.top
-                      }
-                    ]}
-                  >
-                    <Text style={styles.markerLabel}>You are here</Text>
-                    <View style={styles.markerPin}>
-                      <View style={[styles.headingIconWrap, { transform: [{ rotate: `${((snapshot?.position.yawRad ?? 0) * 180) / Math.PI}deg` }] }]}>
-                        <Navigation size={18} color="#ffffff" strokeWidth={2.5} />
-                      </View>
-                    </View>
-                  </View>
-                ) : null}
-
-                <View style={styles.overlayCard}>
-                  <View style={styles.overlayTopLine}>
-                    <Text style={styles.overlayTitle}>Status</Text>
-                    <Text style={styles.overlayStatus}>{statusText}</Text>
-                  </View>
-                  <Text style={styles.overlayValue}>{nextTargetLabel}</Text>
-                  <View style={styles.routeChipRow}>
-                    {routeSteps.slice(0, 4).map((nodeId) => (
-                      <View key={nodeId} style={styles.routeChip}>
-                        <Text style={styles.routeChipText}>{fallbackNodeLabel(nodeId)}</Text>
-                      </View>
-                    ))}
-                  </View>
-                  {!markerPosition ? (
-                    <Text style={styles.overlayHint}>
-                      {snapshot?.position.source === "lidar"
-                        ? "Waiting for cart-edge to receive pixel coordinates from /dev/pose."
-                        : "The route view will switch to a live marker as soon as LiDAR pose data arrives."}
-                    </Text>
-                  ) : null}
-                </View>
-              </View>
-            ) : (
-              <ActivityIndicator size="small" color="#155eef" />
-            )}
-          </View>
-        ) : (
+        {metadataError ? (
           <View style={styles.fallbackMap}>
+            <View style={styles.errorCard}>
+              <Text style={styles.errorCardTitle}>Unable to load store map metadata.</Text>
+              <Text style={styles.errorCardBody}>{metadataError}</Text>
+              <Text style={styles.errorCardUrl}>Tried: {metadataUrl}</Text>
+            </View>
             <View style={styles.fallbackBadgeRow}>
               <View style={[styles.badge, styles.badgeSlate]}>
-                <Text style={[styles.badgeText, styles.badgeSlateText]}>
-                  {metadataError ? "Map offline" : snapshot?.position.source === "lidar" ? "Waiting for live pose" : "Simulator route"}
-                </Text>
+                <Text style={[styles.badgeText, styles.badgeSlateText]}>Map offline</Text>
               </View>
             </View>
             {FALLBACK_NODES.map((node) => {
@@ -229,10 +182,81 @@ export function RealStoreMapPanel({ snapshot }: { snapshot: CartSnapshot | null 
               );
             })}
             <Text style={styles.fallbackHint}>
-              {metadataError
-                ? "Check /maps/store.json and /maps/store.png. Run npm run map:convert after placing store.yaml and store.pgm."
-                : "The real map switches on as soon as cart-edge starts receiving /dev/pose updates."}
+              Check /maps/store.json and /maps/store.png. Run npm run map:convert after placing store.yaml and store.pgm.
             </Text>
+          </View>
+        ) : canShowRealMap && metadata ? (
+          <View style={styles.mapViewport}>
+            <View style={[styles.mapSurface, { aspectRatio: mapAspectRatio }]}>
+              {!imageError ? (
+                <Image
+                  key={imageUrl}
+                  source={{ uri: imageUrl }}
+                  style={styles.mapImage}
+                  resizeMode="stretch"
+                  onError={(event) => {
+                    const message = readImageErrorMessage(event);
+                    setImageError(message);
+                    logDebug("[RealStoreMapPanel] image failed", `${imageUrl} (${message})`);
+                  }}
+                />
+              ) : (
+                <View style={styles.imageErrorState}>
+                  <Text style={styles.errorCardTitle}>Unable to load store map image.</Text>
+                  <Text style={styles.errorCardBody}>{imageError}</Text>
+                  <Text style={styles.errorCardUrl}>Tried: {imageUrl}</Text>
+                </View>
+              )}
+
+              {markerPosition && !imageError ? (
+                <View
+                  style={[
+                    styles.markerWrap,
+                    {
+                      left: `${markerPosition.leftPercent}%`,
+                      top: `${markerPosition.topPercent}%`
+                    }
+                  ]}
+                >
+                  <Text style={styles.markerLabel}>{usingFallbackMarker ? "Cart preview" : "You are here"}</Text>
+                  <View style={styles.markerPin}>
+                    <View style={[styles.headingIconWrap, { transform: [{ rotate: `${((snapshot?.position.yawRad ?? 0) * 180) / Math.PI}deg` }] }]}>
+                      <Navigation size={18} color="#ffffff" strokeWidth={2.5} />
+                    </View>
+                  </View>
+                </View>
+              ) : null}
+
+              <View style={styles.overlayCard}>
+                <View style={styles.overlayTopLine}>
+                  <Text style={styles.overlayTitle}>Status</Text>
+                  <Text style={styles.overlayStatus}>{statusText}</Text>
+                </View>
+                <Text style={styles.overlayValue}>{nextTargetLabel}</Text>
+                <View style={styles.routeChipRow}>
+                  {routeSteps.slice(0, 4).map((nodeId) => (
+                    <View key={nodeId} style={styles.routeChip}>
+                      <Text style={styles.routeChipText}>{fallbackNodeLabel(nodeId)}</Text>
+                    </View>
+                  ))}
+                </View>
+                {usingFallbackMarker ? (
+                  <Text style={styles.overlayHint}>
+                    {snapshot?.position.source === "lidar"
+                      ? "Showing the planned aisle position until cart-edge receives pixel coordinates from /dev/pose."
+                      : "The route preview will switch to a live marker as soon as LiDAR pose data arrives."}
+                  </Text>
+                ) : !markerPosition ? (
+                  <Text style={styles.overlayHint}>Waiting for cart position.</Text>
+                ) : null}
+              </View>
+            </View>
+          </View>
+        ) : (
+          <View style={styles.loadingState}>
+            <ActivityIndicator size="small" color="#155eef" />
+            <Text style={styles.loadingTitle}>Loading store map...</Text>
+            <Text style={styles.loadingText}>{metadataLoading ? metadataUrl : "Waiting for map metadata."}</Text>
           </View>
         )}
       </View>
@@ -244,37 +268,52 @@ export function RealStoreMapPanel({ snapshot }: { snapshot: CartSnapshot | null 
 
 function getMarkerPosition(
   snapshot: CartSnapshot | null,
-  metadata: StoreMapAssetMetadata | null,
-  mapSize: ViewportSize | null
+  metadata: StoreMapAssetMetadata | null
 ): MarkerPosition | null {
-  if (!snapshot || !metadata || !mapSize) return null;
-  if (!isFiniteNumber(snapshot.position.pixelX) || !isFiniteNumber(snapshot.position.pixelY)) return null;
+  if (!snapshot || !metadata) return null;
 
-  return {
-    left: (snapshot.position.pixelX * mapSize.width) / metadata.width,
-    top: (snapshot.position.pixelY * mapSize.height) / metadata.height
-  };
-}
-
-function handleViewportLayout(event: LayoutChangeEvent, setViewport: Dispatch<SetStateAction<ViewportSize>>) {
-  const { width, height } = event.nativeEvent.layout;
-  setViewport((current) => (
-    current.width === width && current.height === height
-      ? current
-      : { width, height }
-  ));
-}
-
-function fitInside(viewport: ViewportSize, sourceWidth: number, sourceHeight: number): ViewportSize | null {
-  if (viewport.width <= 0 || viewport.height <= 0 || sourceWidth <= 0 || sourceHeight <= 0) {
-    return null;
+  if (isFiniteNumber(snapshot.position.pixelX) && isFiniteNumber(snapshot.position.pixelY)) {
+    return {
+      leftPercent: (snapshot.position.pixelX / metadata.width) * 100,
+      topPercent: (snapshot.position.pixelY / metadata.height) * 100,
+      mode: "live"
+    };
   }
 
-  const scale = Math.min(viewport.width / sourceWidth, viewport.height / sourceHeight);
+  const fallbackNode = resolveFallbackNode(snapshot);
+  if (!fallbackNode) return null;
+
   return {
-    width: sourceWidth * scale,
-    height: sourceHeight * scale
+    leftPercent: fallbackNode.xPercent,
+    topPercent: fallbackNode.yPercent,
+    mode: "fallback"
   };
+}
+
+function resolveFallbackNode(snapshot: CartSnapshot | null) {
+  const candidateIds = [
+    snapshot?.position.nodeId,
+    snapshot?.route.nextTarget,
+    snapshot?.route.path?.[0],
+    snapshot?.route.nodes?.[0],
+    "entrance"
+  ];
+
+  for (const candidateId of candidateIds) {
+    if (!candidateId) continue;
+    const node = FALLBACK_NODES.find((entry) => entry.id === candidateId);
+    if (node) return node;
+  }
+
+  return null;
+}
+
+function resolveMapAssetUrl(baseUrl: string, assetPath: string) {
+  try {
+    return new URL(assetPath, `${baseUrl}/`).toString();
+  } catch {
+    return `${baseUrl}/maps/store.png`;
+  }
 }
 
 function fallbackNodeLabel(nodeId: string | null | undefined) {
@@ -305,6 +344,15 @@ function isStoreMapAssetMetadata(value: unknown): value is StoreMapAssetMetadata
     && candidate.origin.every((entry) => isFiniteNumber(entry))
     && isFiniteNumber(candidate.width)
     && isFiniteNumber(candidate.height);
+}
+
+function readImageErrorMessage(event: NativeSyntheticEvent<ImageErrorEventData>) {
+  return event.nativeEvent.error || "Unable to load store map image.";
+}
+
+function logDebug(...args: unknown[]) {
+  if (!IS_DEV) return;
+  console.log(...args);
 }
 
 const styles = StyleSheet.create({
@@ -352,6 +400,9 @@ const styles = StyleSheet.create({
     paddingVertical: 18
   },
   mapSurface: {
+    height: "100%",
+    maxWidth: "100%",
+    alignSelf: "center",
     overflow: "hidden",
     borderRadius: 14,
     backgroundColor: "#edf2f7",
@@ -359,11 +410,15 @@ const styles = StyleSheet.create({
     borderColor: "#dbe4ee"
   },
   mapImage: { width: "100%", height: "100%" },
-  loadingOverlay: {
+  loadingState: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 24, gap: 10 },
+  loadingTitle: { color: "#142033", fontSize: 17, fontWeight: "900" },
+  loadingText: { color: "#64748b", fontSize: 12, fontWeight: "700", textAlign: "center" },
+  imageErrorState: {
     ...StyleSheet.absoluteFillObject,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(248, 250, 252, 0.62)"
+    backgroundColor: "#f8fafc",
+    paddingHorizontal: 20
   },
   markerWrap: {
     position: "absolute",
@@ -419,6 +474,22 @@ const styles = StyleSheet.create({
   routeChipText: { color: "#1d4ed8", fontSize: 11, fontWeight: "900" },
   fallbackMap: { flex: 1, position: "relative", padding: 18 },
   fallbackBadgeRow: { position: "absolute", top: 14, right: 14, zIndex: 2 },
+  errorCard: {
+    position: "absolute",
+    left: 18,
+    right: 18,
+    top: 18,
+    zIndex: 2,
+    borderRadius: 14,
+    backgroundColor: "#fff7ed",
+    borderWidth: 1,
+    borderColor: "#fdba74",
+    padding: 14,
+    gap: 6
+  },
+  errorCardTitle: { color: "#9a3412", fontSize: 15, fontWeight: "900" },
+  errorCardBody: { color: "#7c2d12", fontSize: 12, fontWeight: "700", lineHeight: 18 },
+  errorCardUrl: { color: "#9a3412", fontSize: 11, fontWeight: "800" },
   node: {
     position: "absolute",
     minWidth: 76,
