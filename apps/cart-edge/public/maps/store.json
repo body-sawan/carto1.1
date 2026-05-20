@@ -2,10 +2,10 @@
   "imageUrl": "/maps/store.png",
   "resolution": 0.05,
   "origin": [
-    -5.56,
-    -1.49,
+    -10,
+    -8,
     0
   ],
-  "width": 168,
-  "height": 186
+  "width": 900,
+  "height": 650
 }

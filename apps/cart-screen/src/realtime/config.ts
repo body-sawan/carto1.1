@@ -6,6 +6,7 @@ export const CART_EDGE_WS_URL = stripTrailingSlash(process.env.EXPO_PUBLIC_CART_
 export const CART_EDGE_HTTP_URL = stripTrailingSlash(
   process.env.EXPO_PUBLIC_CART_EDGE_HTTP_URL ?? httpUrlFromWebSocket(CART_EDGE_WS_URL)
 );
+export const MAP_DEBUG_ENABLED = parseBooleanFlag(process.env.EXPO_PUBLIC_MAP_DEBUG);
 
 if (IS_DEV) {
   console.log("[cart-screen] resolved WebSocket URL", CART_EDGE_WS_URL);
@@ -27,4 +28,9 @@ function httpUrlFromWebSocket(url: string) {
 
 function stripTrailingSlash(url: string) {
   return url.replace(/\/+$/u, "");
+}
+
+function parseBooleanFlag(value: string | undefined) {
+  if (!value) return false;
+  return /^(1|true|yes|on)$/iu.test(value.trim());
 }

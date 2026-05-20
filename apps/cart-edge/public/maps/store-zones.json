@@ -1,0 +1,56 @@
+[
+  {
+    "id": "entrance",
+    "label": "Entrance",
+    "pixelX": 450,
+    "pixelY": 592
+  },
+  {
+    "id": "produce_01",
+    "label": "Produce",
+    "pixelX": 168,
+    "pixelY": 486
+  },
+  {
+    "id": "bakery_01",
+    "label": "Bakery",
+    "pixelX": 172,
+    "pixelY": 124
+  },
+  {
+    "id": "grocery_01",
+    "label": "Center Aisles",
+    "pixelX": 455,
+    "pixelY": 324
+  },
+  {
+    "id": "dairy_01",
+    "label": "Dairy",
+    "pixelX": 715,
+    "pixelY": 108
+  },
+  {
+    "id": "meat_01",
+    "label": "Meat & Frozen",
+    "pixelX": 785,
+    "pixelY": 316
+  },
+  {
+    "id": "checkout",
+    "label": "Checkout",
+    "pixelX": 760,
+    "pixelY": 548
+  },
+  {
+    "id": "pharmacy_01",
+    "label": "Pharmacy",
+    "pixelX": 796,
+    "pixelY": 168
+  },
+  {
+    "id": "household_01",
+    "label": "Household",
+    "pixelX": 680,
+    "pixelY": 544
+  }
+]

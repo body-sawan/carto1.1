@@ -73,7 +73,65 @@ If `store.yaml` or `store.pgm` is missing, the converter prints:
 Missing map files. Put store.yaml and store.pgm in apps/cart-edge/public/maps then run npm run map:convert
 ```
 
+## Navigation-style map UI
+
+`cart-screen` uses `RealStoreMapPanel` for the middle map panel.
+
+The map view is designed to behave like a navigation app:
+
+- the user/cart marker stays fixed in the center of the panel
+- the map image moves underneath the fixed marker
+- the map rotates under the marker using snapshot `yawRad`
+- the screen reads `pixelX` and `pixelY` from the `cart-edge` snapshot only
+- `cart-screen` does not talk directly to ROS
+
+The panel loads:
+
+- `EXPO_PUBLIC_CART_EDGE_HTTP_URL/maps/store.png`
+- `EXPO_PUBLIC_CART_EDGE_HTTP_URL/maps/store.json`
+- `EXPO_PUBLIC_CART_EDGE_HTTP_URL/maps/store-zones.json` when available
+
+Debug mode is available during development:
+
+```powershell
+$env:EXPO_PUBLIC_MAP_DEBUG="true"
+```
+
+That shows container size, map size, projected pixel position, scale, yaw, and the active asset URLs without changing the normal shopper UI.
+
+## Simulated supermarket map
+
+For local UI and simulator testing, the repo includes a large fake supermarket map generator:
+
+```bash
+npm run map:simulate
+```
+
+That writes:
+
+- `apps/cart-edge/public/maps/store.yaml`
+- `apps/cart-edge/public/maps/store.pgm`
+- `apps/cart-edge/public/maps/store.png`
+- `apps/cart-edge/public/maps/store.json`
+- `apps/cart-edge/public/maps/store-zones.json`
+
+Use the simulated map for Windows laptop UI testing.
+
+For real ROS integration, the Raspberry Pi map used by AMCL must replace `store.yaml` and `store.pgm`. Then run:
+
+```bash
+npm run map:convert
+```
+
 ## Run cart-edge
+
+For local supermarket-map testing, generate the simulated map first:
+
+```bash
+npm run map:simulate
+```
+
+Then start the edge:
 
 ```bash
 npm run dev:edge
@@ -120,12 +178,22 @@ Do not run `npx expo start -c` from the repo root. That starts Expo in the monor
 
 `npm run dev:screen` is the correct root command. It runs the `@carto/cart-screen` workspace `dev` script, which starts Expo from `apps/cart-screen` with `--web --clear`.
 
+PowerShell example:
+
+```powershell
+$env:EXPO_PUBLIC_CART_EDGE_WS_URL="ws://localhost:4000/ws"
+$env:EXPO_PUBLIC_CART_EDGE_HTTP_URL="http://localhost:4000"
+npm run dev:screen
+```
+
 The middle map panel uses `RealStoreMapPanel` and:
 
 - loads `EXPO_PUBLIC_CART_EDGE_HTTP_URL/maps/store.png`
 - loads `EXPO_PUBLIC_CART_EDGE_HTTP_URL/maps/store.json`
-- overlays the cart marker from snapshot `pixelX` and `pixelY`
-- rotates the heading arrow using `yawRad`
+- keeps the user marker fixed in the center of the viewport
+- moves the map under the marker using snapshot `pixelX` and `pixelY`
+- rotates the map under the marker using `yawRad`
+- can show zone labels from `store-zones.json`
 - falls back gracefully if the generated map files are unavailable
 
 ## Test `/dev/pose`
@@ -133,6 +201,7 @@ The middle map panel uses `RealStoreMapPanel` and:
 Start the edge after generating the map:
 
 ```bash
+npm run map:simulate
 npm run dev:edge
 ```
 
@@ -174,6 +243,27 @@ If `store.json` is missing, the server does not crash. `/dev/pose` returns:
 Map metadata not found. Run npm run map:convert after placing store.yaml and store.pgm.
 ```
 
+## Simulate movement without ROS
+
+After `cart-edge` and `cart-screen` are running, start the pose stream in another terminal:
+
+```bash
+npm run dev:simulate-pose
+```
+
+or:
+
+```bash
+node tools/simulate-pose-stream.mjs --edge-url http://localhost:4000/dev/pose
+```
+
+The simulator:
+
+- posts to `/dev/pose`
+- uses the generated supermarket map origin and resolution
+- moves along aisle-friendly waypoints at 5 Hz by default
+- keeps exercising the same snapshot flow that real ROS integration uses
+
 ## Run the ROS pose bridge
 
 You can use either the standalone script or the ROS package.
@@ -196,6 +286,14 @@ The script:
 - POSTs JSON to `cart-edge`
 - throttles updates to about 5 Hz
 - logs subscribe/start, pose sent, and pose-send failures
+
+For real Raspberry Pi to Windows-laptop testing, point the bridge at the laptop:
+
+```bash
+python3 tools/ros/carto_pose_bridge.py \
+  --edge-url http://LAPTOP_IP:4000/dev/pose \
+  --topic /amcl_pose
+```
 
 ### ROS package
 
@@ -292,7 +390,7 @@ PowerShell backend checks:
 ```powershell
 Invoke-RestMethod -Uri "http://localhost:4000/health"
 Invoke-RestMethod -Uri "http://localhost:4000/maps/store.json"
-Invoke-WebRequest -Uri "http://localhost:4000/maps/store.png" -Method Head
+curl.exe -I http://localhost:4000/maps/store.png
 ```
 
 Pose check:
@@ -315,14 +413,22 @@ Screen run:
 ```powershell
 $env:EXPO_PUBLIC_CART_EDGE_WS_URL="ws://localhost:4000/ws"
 $env:EXPO_PUBLIC_CART_EDGE_HTTP_URL="http://localhost:4000"
+$env:EXPO_PUBLIC_MAP_DEBUG="true"
 npm run dev:screen
+```
+
+Pose simulation run:
+
+```bash
+npm run dev:simulate-pose
 ```
 
 Expected:
 
 - `/health` `screenClients` should become `1` after the screen opens.
 - the screen should show `Online`, not `Offline`.
-- the map should render instead of staying on an infinite spinner.
+- the map should render instead of staying on an infinite spinner
+- the user marker should stay centered while the map moves and rotates underneath it
 
 If the marker does not move:
 
@@ -349,6 +455,7 @@ If `/dev/pose` fails:
 Run:
 
 ```bash
+npm run map:simulate
 npm run typecheck
 npm run build
 ```

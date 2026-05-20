@@ -93,9 +93,9 @@ const styles = StyleSheet.create({
   },
   shoppingScreen: { flex: 1, padding: 16, gap: 14 },
   layout: { flex: 1, flexDirection: "row", gap: 14, minHeight: 0 },
-  leftPanel: { flex: 1, minWidth: 220 },
-  middlePanel: { flex: 2, minWidth: 360 },
-  rightPanel: { flex: 1, minWidth: 250 },
+  leftPanel: { flex: 1, minWidth: 220, minHeight: 0 },
+  middlePanel: { flex: 2, minWidth: 360, minHeight: 0 },
+  rightPanel: { flex: 1, minWidth: 250, minHeight: 0 },
   errorScreen: {
     flex: 1,
     alignItems: "center",
