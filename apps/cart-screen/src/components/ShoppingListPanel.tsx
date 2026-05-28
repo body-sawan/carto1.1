@@ -1,39 +1,101 @@
-import { ScrollView, View, Text, StyleSheet } from "react-native";
-import type { CartSnapshot } from "../store/cartUiStore";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
+import type { CartSnapshot, UiLanguage } from "../store/cartUiStore";
+import type { AppStrings, ThemePalette } from "../ui/appUi";
+import { scaleSize, shadowStyle } from "../ui/appUi";
 
-const CUSTOMER_WEBAPP_URL = process.env.EXPO_PUBLIC_CUSTOMER_WEBAPP_URL ?? "https://carto.com";
+interface ShoppingListPanelProps {
+  language: UiLanguage;
+  snapshot: CartSnapshot | null;
+  strings: AppStrings;
+  textScale: number;
+  theme: ThemePalette;
+}
 
-export function ShoppingListPanel({ snapshot }: { snapshot: CartSnapshot | null }) {
+export function ShoppingListPanel({
+  language,
+  snapshot,
+  strings,
+  textScale,
+  theme
+}: ShoppingListPanelProps) {
   const items = snapshot?.shoppingList ?? [];
   const isGuestMode = snapshot?.shoppingMode === "GUEST" || (snapshot?.state === "SHOPPING" && items.length === 0);
 
   return (
-    <View style={styles.panel}>
+    <View style={[
+      styles.panel,
+      {
+        backgroundColor: theme.card,
+        borderColor: theme.border
+      },
+      shadowStyle(theme, 8)
+    ]}>
       <View style={styles.header}>
-        <Text style={styles.title}>Shopping List</Text>
-        <Text style={styles.count}>{items.length} items</Text>
+        <View style={styles.titleBlock}>
+          <Text style={[styles.title, { color: theme.textPrimary, fontSize: scaleSize(20, textScale) }]}>
+            {strings.shoppingList}
+          </Text>
+          <Text style={[styles.subtitle, { color: theme.textMuted, fontSize: scaleSize(12, textScale) }]}>
+            {items.length ? `${items.length} ${strings.cartItems}` : strings.shoppingListHint}
+          </Text>
+        </View>
+        <View style={[styles.countBadge, { backgroundColor: theme.cardMuted }]}>
+          <Text style={[styles.countBadgeText, { color: theme.textSecondary, fontSize: scaleSize(11, textScale) }]}>
+            {items.length}
+          </Text>
+        </View>
       </View>
+
       <ScrollView contentContainerStyle={styles.list}>
-        {items.map((item) => (
-          <View key={item.productId} style={styles.row}>
-            <View style={styles.itemCopy}>
-              <Text style={styles.name} numberOfLines={2}>{item.name}</Text>
-              <Text style={styles.sub}>Qty wanted: {item.quantity}</Text>
+        {items.map((item) => {
+          const tone = getStatusTone(item.status, theme);
+          return (
+            <View
+              key={item.productId}
+              style={[
+                styles.row,
+                {
+                  backgroundColor: theme.cardMuted,
+                  borderColor: theme.border
+                }
+              ]}
+            >
+              <View style={styles.itemCopy}>
+                <Text style={[styles.name, { color: theme.textPrimary, fontSize: scaleSize(15, textScale) }]} numberOfLines={2}>
+                  {item.name}
+                </Text>
+                <Text style={[styles.sub, { color: theme.textMuted, fontSize: scaleSize(12, textScale) }]}>
+                  {language === "ar" ? `المطلوب ${item.quantity} | تم جمع ${item.inCartQuantity}` : `Wanted ${item.quantity} | In cart ${item.inCartQuantity}`}
+                </Text>
+              </View>
+              <View style={[styles.badge, { backgroundColor: tone.soft }]}>
+                <Text style={[styles.badgeText, { color: tone.main, fontSize: scaleSize(10, textScale) }]}>
+                  {formatStatusLabel(item.status, language)}
+                </Text>
+              </View>
             </View>
-            <Text style={[styles.badge, statusStyle(item.status)]}>{item.status}</Text>
-          </View>
-        ))}
+          );
+        })}
+
         {!items.length ? (
           isGuestMode ? (
-            <View style={styles.guestEmpty}>
-              <Text style={styles.emptyTitle}>No shopping list</Text>
-              <Text style={styles.emptyText}>You started shopping without a list.</Text>
-              <Text style={styles.emptyText}>Scan products to add them to your cart.</Text>
-              <Text style={styles.emptyText}>For the full experience, create a list from the web app:</Text>
-              <Text style={styles.webappUrl}>{CUSTOMER_WEBAPP_URL.replace(/^https?:\/\//, "")}</Text>
+            <View style={[styles.emptyCard, { backgroundColor: theme.cardMuted, borderColor: theme.border }]}>
+              <Text style={[styles.emptyTitle, { color: theme.textPrimary, fontSize: scaleSize(18, textScale) }]}>
+                {strings.noList}
+              </Text>
+              <Text style={[styles.emptyText, { color: theme.textSecondary, fontSize: scaleSize(14, textScale) }]}>
+                {strings.openWebsiteList}
+              </Text>
             </View>
           ) : (
-            <Text style={styles.empty}>Shopping list will appear here after pairing.</Text>
+            <View style={[styles.emptyCard, { backgroundColor: theme.cardMuted, borderColor: theme.border }]}>
+              <Text style={[styles.emptyTitle, { color: theme.textPrimary, fontSize: scaleSize(18, textScale) }]}>
+                {strings.noList}
+              </Text>
+              <Text style={[styles.emptyText, { color: theme.textSecondary, fontSize: scaleSize(14, textScale) }]}>
+                {strings.shoppingListHint}
+              </Text>
+            </View>
           )
         ) : null}
       </ScrollView>
@@ -41,48 +103,113 @@ export function ShoppingListPanel({ snapshot }: { snapshot: CartSnapshot | null 
   );
 }
 
-function statusStyle(status: string) {
-  if (status === "IN_CART") return { backgroundColor: "#dff7e8", color: "#146b38" };
-  if (status === "PARTIAL") return { backgroundColor: "#fff0c2", color: "#7a5200" };
-  if (status === "REMOVED") return { backgroundColor: "#fee2e2", color: "#991b1b" };
-  if (status === "SKIPPED") return { backgroundColor: "#f1f5f9", color: "#475569" };
-  return { backgroundColor: "#e8eef8", color: "#31445f" };
+function getStatusTone(status: string, theme: ThemePalette) {
+  if (status === "IN_CART") return { main: theme.success, soft: theme.successSoft };
+  if (status === "PARTIAL") return { main: theme.warning, soft: theme.warningSoft };
+  if (status === "REMOVED") return { main: theme.error, soft: theme.errorSoft };
+  return { main: theme.accent, soft: theme.accentSoft };
+}
+
+function formatStatusLabel(status: string, language: UiLanguage) {
+  if (language === "ar") {
+    if (status === "IN_CART") return "تم الجمع";
+    if (status === "PARTIAL") return "جزئي";
+    if (status === "REMOVED") return "غير متاح";
+    if (status === "SKIPPED") return "تم التخطي";
+    return "قيد الانتظار";
+  }
+
+  if (status === "IN_CART") return "Collected";
+  if (status === "PARTIAL") return "Partial";
+  if (status === "REMOVED") return "Unavailable";
+  if (status === "SKIPPED") return "Skipped";
+  return "Pending";
 }
 
 const styles = StyleSheet.create({
-  panel: { flex: 1, backgroundColor: "#ffffff", borderRadius: 16, padding: 16, gap: 14, minHeight: 0 },
-  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 10 },
-  title: { fontSize: 21, fontWeight: "900", color: "#142033" },
-  count: { color: "#64748b", fontSize: 12, fontWeight: "800" },
-  list: { gap: 10, paddingBottom: 4 },
-  row: {
-    minHeight: 74,
+  panel: {
+    flex: 1,
+    borderRadius: 26,
+    borderWidth: 1,
+    padding: 18,
+    gap: 14,
+    minHeight: 0
+  },
+  header: {
     flexDirection: "row",
     justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 12
+  },
+  titleBlock: {
+    flex: 1,
+    gap: 4
+  },
+  title: {
+    fontWeight: "900"
+  },
+  subtitle: {
+    fontWeight: "700"
+  },
+  countBadge: {
+    minWidth: 38,
+    minHeight: 38,
+    borderRadius: 999,
     alignItems: "center",
+    justifyContent: "center"
+  },
+  countBadgeText: {
+    fontWeight: "900"
+  },
+  list: {
     gap: 10,
-    backgroundColor: "#f8fafc",
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-    padding: 12
+    paddingBottom: 2
   },
-  itemCopy: { flex: 1, gap: 5 },
-  name: { fontSize: 15, fontWeight: "800", color: "#1e293b" },
-  sub: { fontSize: 12, color: "#64748b", fontWeight: "700" },
-  badge: { overflow: "hidden", borderRadius: 999, paddingHorizontal: 9, paddingVertical: 6, fontSize: 10, fontWeight: "900" },
-  empty: { color: "#64748b", lineHeight: 20 },
-  guestEmpty: {
-    minHeight: 250,
-    borderRadius: 12,
-    backgroundColor: "#f8fafc",
+  row: {
+    minHeight: 82,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: "#e2e8f0",
-    padding: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 12
+  },
+  itemCopy: {
+    flex: 1,
+    gap: 6
+  },
+  name: {
+    fontWeight: "800"
+  },
+  sub: {
+    fontWeight: "600"
+  },
+  badge: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 7
+  },
+  badgeText: {
+    fontWeight: "900"
+  },
+  emptyCard: {
+    minHeight: 260,
+    borderRadius: 22,
+    borderWidth: 1,
+    padding: 20,
+    alignItems: "center",
     justifyContent: "center",
-    gap: 8
+    gap: 10
   },
-  emptyTitle: { color: "#142033", fontSize: 20, fontWeight: "900", textAlign: "center" },
-  emptyText: { color: "#64748b", fontSize: 14, fontWeight: "800", lineHeight: 20, textAlign: "center" },
-  webappUrl: { color: "#2563eb", fontSize: 16, fontWeight: "900", textAlign: "center" }
+  emptyTitle: {
+    fontWeight: "900",
+    textAlign: "center"
+  },
+  emptyText: {
+    fontWeight: "700",
+    lineHeight: 22,
+    textAlign: "center"
+  }
 });

@@ -12,8 +12,6 @@ export class SnapshotBuilder {
       shoppingList: session.shoppingList,
       cartItems: session.cartItems,
       totals: session.totals,
-      position: session.position,
-      route: session.route,
       payment: session.payment,
       alerts: session.alerts.slice(-6)
     };

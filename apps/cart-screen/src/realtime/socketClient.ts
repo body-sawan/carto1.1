@@ -110,6 +110,10 @@ export class CartSocketClient {
     this.send("command.checkout_start", {});
   }
 
+  confirmPayment() {
+    this.send("command.payment_confirm", {});
+  }
+
   startShopping() {
     this.send("command.start_shopping", { sentAt: new Date().toISOString() });
   }

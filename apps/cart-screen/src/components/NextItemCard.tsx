@@ -2,7 +2,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { CheckCircle2, MapPin, Search } from "lucide-react-native";
 import type { ShoppingListItem } from "@carto/shared";
 import type { CartSnapshot } from "../store/cartUiStore";
-import { formatLocation, formatRouteTarget, getNextListItem, isGuestShopping } from "./shopperUtils";
+import { formatLocation, getNextListItem, isGuestShopping } from "./shopperUtils";
 
 interface NextItemCardProps {
   snapshot: CartSnapshot | null;
@@ -12,7 +12,6 @@ interface NextItemCardProps {
 export function NextItemCard({ snapshot, onCantFind }: NextItemCardProps) {
   const guestMode = isGuestShopping(snapshot);
   const nextItem = getNextListItem(snapshot);
-  const routeTarget = formatRouteTarget(snapshot);
 
   return (
     <View style={styles.card}>
@@ -35,7 +34,6 @@ export function NextItemCard({ snapshot, onCantFind }: NextItemCardProps) {
             </View>
             <View style={styles.locationCopy}>
               <Text style={styles.location}>Go to {formatLocation(nextItem)}</Text>
-              {routeTarget ? <Text style={styles.route}>Next target: {routeTarget}</Text> : null}
             </View>
           </View>
           <Pressable accessibilityRole="button" onPress={() => onCantFind(nextItem)} style={({ pressed }) => [styles.button, pressed ? styles.buttonPressed : null]}>
@@ -98,7 +96,6 @@ const styles = StyleSheet.create({
   },
   locationCopy: { flex: 1, gap: 4 },
   location: { color: "#064e3b", fontSize: 18, fontWeight: "900" },
-  route: { color: "#475569", fontSize: 14, fontWeight: "800" },
   button: {
     marginTop: 4,
     minHeight: 58,

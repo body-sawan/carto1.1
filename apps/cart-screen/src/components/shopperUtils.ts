@@ -1,4 +1,5 @@
 import type { CartSnapshot, ReceiptLine, ShoppingListItem } from "@carto/shared";
+import type { UiLanguage } from "../store/cartUiStore";
 
 export type ShopperItemDetails =
   | { kind: "shopping-list"; item: ShoppingListItem; cartQuantity: number }
@@ -16,15 +17,39 @@ const NODE_LABELS: Record<string, string> = {
   checkout: "Checkout"
 };
 
-const TECHNICAL_MESSAGES: Record<string, string> = {
-  INVALID_LIST_PAYLOAD: "We couldn't load your shopping list.",
-  UNKNOWN_PRODUCT: "Product not recognized.",
-  UNKNOWN_BARCODE: "Product not recognized.",
-  EMPTY_CART: "Your cart is empty.",
-  PAYMENT_FAILED: "Payment failed. Please try again.",
-  "Cannot checkout with an empty cart": "Your cart is empty.",
-  "Unknown barcode/productId": "Product not recognized.",
-  "Duplicate scan ignored by debounce window": "That scan was already counted."
+const TECHNICAL_MESSAGES: Record<string, { ar: string; en: string }> = {
+  INVALID_LIST_PAYLOAD: {
+    ar: "تعذر تحميل قائمة التسوق.",
+    en: "We couldn't load your shopping list."
+  },
+  UNKNOWN_PRODUCT: {
+    ar: "لم يتم التعرف على المنتج.",
+    en: "Product not recognized."
+  },
+  UNKNOWN_BARCODE: {
+    ar: "لم يتم التعرف على المنتج.",
+    en: "Product not recognized."
+  },
+  EMPTY_CART: {
+    ar: "السلة فارغة.",
+    en: "Your cart is empty."
+  },
+  PAYMENT_FAILED: {
+    ar: "فشلت عملية الدفع. حاول مرة أخرى.",
+    en: "Payment failed. Please try again."
+  },
+  "Cannot checkout with an empty cart": {
+    ar: "السلة فارغة.",
+    en: "Your cart is empty."
+  },
+  "Unknown barcode/productId": {
+    ar: "لم يتم التعرف على المنتج.",
+    en: "Product not recognized."
+  },
+  "Duplicate scan ignored by debounce window": {
+    ar: "تم احتساب هذه العملية بالفعل.",
+    en: "That scan was already counted."
+  }
 };
 
 export function isGuestShopping(snapshot: CartSnapshot | null) {
@@ -48,9 +73,7 @@ export function getCartQuantity(snapshot: CartSnapshot | null, productId: string
 
 export function getNextListItem(snapshot: CartSnapshot | null) {
   const missing = getMissingListItems(snapshot);
-  if (!missing.length) return undefined;
-  const nextTarget = snapshot?.route.nextTarget;
-  return missing.find((item) => item.mapNodeId === nextTarget) ?? missing[0];
+  return missing[0];
 }
 
 export function getProgress(snapshot: CartSnapshot | null) {
@@ -68,20 +91,14 @@ export function formatLocation(item?: Pick<ShoppingListItem | ReceiptLine, "cate
   return "Location not available yet";
 }
 
-export function formatRouteTarget(snapshot: CartSnapshot | null) {
-  const nextTarget = snapshot?.route.nextTarget;
-  if (!nextTarget) return undefined;
-  return formatNodeLabel(nextTarget);
-}
-
 export function formatNodeLabel(nodeId: string) {
   return NODE_LABELS[nodeId] ?? nodeId.replace(/_/g, " ");
 }
 
-export function friendlyMessage(message?: string | null) {
-  if (!message) return "Everything is ready.";
+export function friendlyMessage(message?: string | null, language: UiLanguage = "en") {
+  if (!message) return language === "ar" ? "كل شيء جاهز." : "Everything is ready.";
   for (const [technical, friendly] of Object.entries(TECHNICAL_MESSAGES)) {
-    if (message.includes(technical)) return friendly;
+    if (message.includes(technical)) return language === "ar" ? friendly.ar : friendly.en;
   }
   return message;
 }

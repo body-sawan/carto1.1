@@ -103,9 +103,6 @@ async function handleCommand(line: string): Promise<CommandResult> {
           console.log("Unknown cancel command. Try: cancel checkout");
         }
         return "continue";
-      case "move":
-        await moveCart(value);
-        return "continue";
       case "help":
         printHelp();
         return "continue";
@@ -184,9 +181,6 @@ async function printStatus() {
   console.log(`Subtotal: ${formatMoney(snapshot.totals.subtotal)}`);
   console.log(`Total: ${formatMoney(snapshot.totals.total)}`);
   console.log(`Payment status: ${snapshot.payment.status}`);
-  console.log(`Position: ${snapshot.position.nodeId} (${snapshot.position.x}, ${snapshot.position.y})`);
-  console.log(`Route next target: ${snapshot.route.nextTarget ?? "none"}`);
-  console.log(`Route nodes: ${snapshot.route.nodes.length ? snapshot.route.nodes.join(" -> ") : "none"}`);
 }
 
 async function watchStatus() {
@@ -230,7 +224,6 @@ function printLiveDashboard(health: HealthResponse, snapshot: CartSnapshot) {
   console.log(`List sent: ${listSent ? "yes" : "no"} | Active list ID: ${snapshot.activeListId ?? "none"}`);
   console.log(`List progress: ${completedListItems}/${snapshot.shoppingList.length} items complete | Quantity in cart: ${inCartQuantity}/${requestedQuantity}`);
   console.log(`Cart items: ${snapshot.cartItems.length} lines | Total: ${formatMoney(snapshot.totals.total)}`);
-  console.log(`Position: ${snapshot.position.nodeId} (${snapshot.position.x}, ${snapshot.position.y}) | Next target: ${snapshot.route.nextTarget ?? "none"}`);
 
   if (snapshot.pairing && snapshot.state === "WAITING_FOR_LIST") {
     console.log(`Pairing code: ${snapshot.pairing.pairingCode} | Expires: ${snapshot.pairing.expiresAt}`);
@@ -306,23 +299,6 @@ async function cancelCheckout() {
   }
 
   console.log("Checkout cancelled. Returned to shopping mode.");
-}
-
-async function moveCart(nodeId: string) {
-  if (!nodeId) {
-    console.log("Please provide a nodeId. Example: move dairy_01");
-    console.log("Known nodes: entrance, produce_01, bakery_01, grocery_01, dairy_01, meat_01, checkout");
-    return;
-  }
-
-  const response = await postJson<DevActionResponse>("/dev/move", { nodeId });
-  if (!response.ok || !response.session) {
-    console.log(`Could not move cart: ${response.error ?? "Unknown backend error"}`);
-    console.log("Known nodes: entrance, produce_01, bakery_01, grocery_01, dairy_01, meat_01, checkout");
-    return;
-  }
-
-  console.log(`Moved cart to ${response.session.position.nodeId} (${response.session.position.x}, ${response.session.position.y}).`);
 }
 
 async function showAll() {
@@ -423,7 +399,6 @@ function printHelp() {
   console.log("  pay success");
   console.log("  pay fail");
   console.log("  cancel checkout");
-  console.log("  move <nodeId>");
   console.log("  help");
   console.log("  exit");
   console.log("");
@@ -431,7 +406,6 @@ function printHelp() {
   console.log("  show all");
   console.log("  add milk 1L");
   console.log("  remove milk 1L");
-  console.log("  move dairy_01");
   console.log("  watch");
 }
 

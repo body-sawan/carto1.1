@@ -7,7 +7,6 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "dev:cli": "tsx src/dev/cartCli.ts",
-    "map:convert": "node ../../tools/convert-ros-map.mjs",
     "start": "node dist/index.js",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",

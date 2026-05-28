@@ -40,16 +40,6 @@ const DEMO_PRODUCTS = [
   { id: "p_chicken", label: "Chicken Breast" }
 ];
 
-const MOVE_TARGETS = [
-  { id: "entrance", label: "Entrance" },
-  { id: "produce_01", label: "Produce" },
-  { id: "bakery_01", label: "Bakery" },
-  { id: "grocery_01", label: "Grocery" },
-  { id: "dairy_01", label: "Dairy" },
-  { id: "meat_01", label: "Meat" },
-  { id: "checkout", label: "Checkout" }
-];
-
 export function AdminPanel({
   connected,
   snapshot,
@@ -136,10 +126,6 @@ export function AdminPanel({
 
   async function removeProduct(productId: string, label: string) {
     await runAction(`Remove ${label}`, () => postDev("/dev/remove", { productId }));
-  }
-
-  async function moveCart(nodeId: string, label: string) {
-    await runAction(`Move to ${label}`, () => postDev("/dev/move", { nodeId }));
   }
 
   function loadDemoShoppingList() {
@@ -351,22 +337,6 @@ export function AdminPanel({
               </View>
             </Section>
 
-            <Section title="Location / Route">
-              <InfoRow label="current nodeId" value={snapshot?.position.nodeId ?? "not available"} />
-              <InfoRow label="x / y" value={snapshot ? `${snapshot.position.x}, ${snapshot.position.y}` : "not available"} />
-              <InfoRow label="next target" value={snapshot?.route.nextTarget ?? "none"} />
-              <InfoRow label="route distance" value={String(snapshot?.route.distance ?? 0)} />
-              <Text style={styles.instruction}>Route recalculates automatically.</Text>
-              <Text style={styles.subheading}>Move Cart</Text>
-              <View style={styles.buttonGrid}>
-                {MOVE_TARGETS.map((target) => (
-                  <ActionButton key={target.id} label={target.label} compact onPress={() => void moveCart(target.id, target.label)} />
-                ))}
-              </View>
-              <Text style={styles.subheading}>Route Debug</Text>
-              <Text style={styles.muted}>{snapshot?.route.nodes.length ? snapshot.route.nodes.join(" -> ") : "No route nodes."}</Text>
-            </Section>
-
             <Section title="Debug">
               <InfoRow label="connected" value={connected ? "connected" : "disconnected"} />
               <InfoRow label="cartId" value={snapshot?.cartId ?? "not available"} />
@@ -377,7 +347,6 @@ export function AdminPanel({
               <InfoRow label="subtotal" value={formatMoney(snapshot?.totals.subtotal ?? 0)} />
               <InfoRow label="total" value={formatMoney(snapshot?.totals.total ?? 0)} />
               <InfoRow label="payment status" value={snapshot?.payment.status ?? "NOT_STARTED"} />
-              <InfoRow label="current position" value={snapshot?.position.nodeId ?? "not available"} />
               <View style={styles.buttonGrid}>
                 <ActionButton label="Copy Snapshot JSON" variant="secondary" onPress={() => void copyText("Snapshot JSON", rawSnapshot)} />
                 <ActionButton label="Clear Alerts" disabled disabledReason="Not available yet" />

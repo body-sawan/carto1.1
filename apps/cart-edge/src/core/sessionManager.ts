@@ -1,20 +1,11 @@
-﻿import crypto from "node:crypto";
-import type { LocalStore } from "../storage/localStore.js";
+import crypto from "node:crypto";
 import type { CartSession, IncomingShoppingList } from "@carto/shared";
-import type { CartStateMachine } from "./cartStateMachine.js";
 import type { PairingManager } from "../bluetooth/pairingManager.js";
-import type { ShoppingListEngine } from "./shoppingListEngine.js";
-import type { ReceiptEngine } from "./receiptEngine.js";
-import type { RoutePlanner } from "../navigation/routePlanner.js";
-import type { PositionSimulator } from "../navigation/positionSimulator.js";
+import type { LocalStore } from "../storage/localStore.js";
+import type { CartStateMachine } from "./cartStateMachine.js";
 import type { CheckoutManager } from "./checkoutManager.js";
-export interface LocalizedPoseUpdate {
-  xMeters: number;
-  yMeters: number;
-  yawRad: number;
-  pixelX: number;
-  pixelY: number;
-}
+import type { ReceiptEngine } from "./receiptEngine.js";
+import type { ShoppingListEngine } from "./shoppingListEngine.js";
 
 export type CartSessionStateErrorCode = "CART_NOT_WAITING_FOR_LIST" | "INVALID_STATE";
 
@@ -37,16 +28,16 @@ export class SessionManager {
     private readonly pairingManager: PairingManager,
     private readonly listEngine: ShoppingListEngine,
     private readonly receiptEngine: ReceiptEngine,
-    private readonly routePlanner: RoutePlanner,
-    private readonly positionSimulator: PositionSimulator,
     private readonly checkoutManager: CheckoutManager
   ) {}
 
   async boot(): Promise<CartSession> {
     const saved = await this.store.loadSession();
     if (saved && saved.state !== "SESSION_CLOSED") {
-      this.session = this.ensureBlePairing(saved);
-      if (this.session !== saved) await this.persist();
+      const hadLegacyNavigation = hasLegacyNavigationState(saved);
+      const cleaned = hadLegacyNavigation ? this.stripLegacyNavigationState(saved) : saved;
+      this.session = this.ensureBlePairing(cleaned);
+      if (hadLegacyNavigation || this.session !== saved) await this.persist();
       return this.session;
     }
 
@@ -65,7 +56,6 @@ export class SessionManager {
   private createWaitingSession(): CartSession {
     const now = new Date().toISOString();
     const sessionId = `session_${crypto.randomUUID()}`;
-    const position = this.positionSimulator.getPosition("entrance");
     const pairing = this.pairingManager.createPairing(this.cartId, sessionId);
     return {
       cartId: this.cartId,
@@ -77,8 +67,6 @@ export class SessionManager {
       shoppingList: [],
       cartItems: [],
       totals: { subtotal: 0, discount: 0, tax: 0, total: 0 },
-      position,
-      route: { nodes: [], path: [], nextTarget: null, distance: 0 },
       payment: { status: "NOT_STARTED", amount: 0 },
       alerts: [{ id: "boot", level: "info", message: "Cart ready. Scan QR code to pair shopping list.", createdAt: now }],
       createdAt: now,
@@ -105,6 +93,14 @@ export class SessionManager {
     };
   }
 
+  private stripLegacyNavigationState(session: CartSession): CartSession {
+    const { position: _position, route: _route, ...cleaned } = session as CartSession & {
+      position?: unknown;
+      route?: unknown;
+    };
+    return cleaned as CartSession;
+  }
+
   current(): CartSession {
     if (!this.session) throw new Error("Session manager has not booted");
     return this.session;
@@ -116,6 +112,7 @@ export class SessionManager {
     if (session.state !== "WAITING_FOR_LIST") {
       throw new CartSessionStateError("CART_NOT_WAITING_FOR_LIST", "Cart is not waiting for a shopping list.");
     }
+
     const shoppingList = this.listEngine.createItems(incoming);
     this.session = {
       ...session,
@@ -123,7 +120,6 @@ export class SessionManager {
       activeListId: incoming.listId,
       shoppingMode: "LIST",
       shoppingList,
-      route: this.routePlanner.plan(session.position.nodeId, shoppingList),
       alerts: [...session.alerts, this.alert("success", `Shopping list ${incoming.listId} received.`)],
       updatedAt: new Date().toISOString()
     };
@@ -150,14 +146,12 @@ export class SessionManager {
       throw new CartSessionStateError("INVALID_STATE", "Cannot start shopping from the current cart state.");
     }
 
-    const shoppingList: CartSession["shoppingList"] = [];
     this.session = {
       ...session,
       state: this.stateMachine.transition(session.state, "SHOPPING"),
       activeListId: undefined,
       shoppingMode: "GUEST",
-      shoppingList,
-      route: this.routePlanner.plan(session.position.nodeId, shoppingList),
+      shoppingList: [],
       alerts: [...session.alerts, this.alert("info", "Started shopping without a list.")],
       updatedAt: new Date().toISOString()
     };
@@ -174,7 +168,6 @@ export class SessionManager {
       cartItems,
       shoppingList,
       totals: this.receiptEngine.calculateTotals(cartItems),
-      route: this.routePlanner.plan(session.position.nodeId, shoppingList),
       updatedAt: new Date().toISOString()
     };
     await this.persist();
@@ -190,47 +183,7 @@ export class SessionManager {
       cartItems,
       shoppingList,
       totals: this.receiptEngine.calculateTotals(cartItems),
-      route: this.routePlanner.plan(session.position.nodeId, shoppingList),
       updatedAt: new Date().toISOString()
-    };
-    await this.persist();
-    return this.session;
-  }
-
-  async moveTo(nodeId: string): Promise<CartSession> {
-    const session = this.current();
-    const position = this.positionSimulator.getPosition(nodeId);
-    this.session = {
-      ...session,
-      position,
-      route: this.routePlanner.plan(nodeId, session.shoppingList),
-      updatedAt: new Date().toISOString()
-    };
-    await this.persist();
-    return this.session;
-  }
-
-  async updateLocalizedPose(pose: LocalizedPoseUpdate): Promise<CartSession> {
-    const session = this.current();
-    const updatedAt = new Date().toISOString();
-    const nodeId = session.position.nodeId || "real_pose";
-
-    this.session = {
-      ...session,
-      position: {
-        ...session.position,
-        nodeId,
-        x: pose.xMeters,
-        y: pose.yMeters,
-        xMeters: pose.xMeters,
-        yMeters: pose.yMeters,
-        yawRad: pose.yawRad,
-        pixelX: pose.pixelX,
-        pixelY: pose.pixelY,
-        source: "lidar",
-        updatedAt
-      },
-      updatedAt
     };
     await this.persist();
     return this.session;
@@ -292,3 +245,6 @@ export class SessionManager {
   }
 }
 
+function hasLegacyNavigationState(session: CartSession) {
+  return "position" in (session as object) || "route" in (session as object);
+}

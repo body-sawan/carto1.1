@@ -141,26 +141,6 @@ export interface PairingInfo {
   expiresAt: string;
 }
 
-export interface Position {
-  nodeId: string;
-  x: number;
-  y: number;
-  xMeters?: number;
-  yMeters?: number;
-  yawRad?: number;
-  pixelX?: number;
-  pixelY?: number;
-  source?: "simulator" | "lidar";
-  updatedAt?: string;
-}
-
-export interface Route {
-  nodes: string[];
-  path?: string[];
-  nextTarget: string | null;
-  distance: number;
-}
-
 export interface Alert {
   id: string;
   level: "info" | "warning" | "error" | "success";
@@ -185,8 +165,6 @@ export interface CartSnapshot {
   shoppingList: ShoppingListItem[];
   cartItems: ReceiptLine[];
   totals: Totals;
-  position: Position;
-  route: Route;
   payment: PaymentState;
   alerts: Alert[];
 }
@@ -201,8 +179,6 @@ export interface CartSession {
   shoppingList: ShoppingListItem[];
   cartItems: ReceiptLine[];
   totals: Totals;
-  position: Position;
-  route: Route;
   payment: PaymentState;
   alerts: Alert[];
   createdAt: string;

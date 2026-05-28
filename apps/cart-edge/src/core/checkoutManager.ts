@@ -57,7 +57,9 @@ export class CheckoutManager {
   }
 
   cancel(session: CartSession): CartSession {
-    if (session.state !== "WAITING_PAYMENT" && session.state !== "CHECKOUT_PENDING") throw new Error("Checkout is not active");
+    if (session.state !== "WAITING_PAYMENT" && session.state !== "CHECKOUT_PENDING" && session.state !== "PAYMENT_FAILED") {
+      throw new Error("Checkout is not active");
+    }
     return {
       ...session,
       state: "SHOPPING",
