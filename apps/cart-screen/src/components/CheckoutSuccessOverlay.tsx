@@ -3,6 +3,7 @@ import { Animated, StyleSheet, Text, View } from "react-native";
 import { CheckCircle2 } from "lucide-react-native";
 import type { AppStrings, ThemePalette } from "../ui/appUi";
 import { scaleSize } from "../ui/appUi";
+import { CartoLogo } from "./CartoLogo";
 
 interface CheckoutSuccessOverlayProps {
   strings: AppStrings;
@@ -73,6 +74,7 @@ export function CheckoutSuccessOverlay({
           }
         ]}
       >
+        <CartoLogo height={72} radius={22} resizeMode="cover" width={174} />
         <View style={[styles.iconWrap, { backgroundColor: theme.successSoft }]}>
           <CheckCircle2 size={72} color={theme.success} />
         </View>

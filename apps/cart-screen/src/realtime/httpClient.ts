@@ -1,5 +1,13 @@
 import type { Product } from "@carto/shared";
-import { CART_EDGE_HTTP_URL } from "./config";
+import { CART_EDGE_HTTP_URL, CART_SCREEN_BACKEND_MODE } from "./config";
+import { fetchCartoCatalog } from "./cartoApi";
+import {
+  addLocalProduct,
+  cancelLocalGuestCheckout,
+  confirmLocalGuestPayment,
+  failLocalGuestPayment,
+  removeLocalProduct
+} from "./localCartActions";
 
 interface EdgeErrorResponse {
   ok?: boolean;
@@ -22,6 +30,11 @@ export interface HealthResponse {
 }
 
 export async function fetchCatalog() {
+  if (CART_SCREEN_BACKEND_MODE === "carto") {
+    const products = await fetchCartoCatalog();
+    return { products };
+  }
+
   const response = await fetch(`${CART_EDGE_HTTP_URL}/dev/catalog`);
   return readJsonResponse<CatalogResponse>(response);
 }
@@ -32,6 +45,10 @@ export async function fetchHealthStatus(signal?: AbortSignal) {
 }
 
 export async function postDevAction<T = unknown>(path: string, body: unknown = {}) {
+  if (CART_SCREEN_BACKEND_MODE === "carto") {
+    return postCartoLocalAction<T>(path, body);
+  }
+
   const response = await fetch(`${CART_EDGE_HTTP_URL}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -50,4 +67,35 @@ async function readJsonResponse<T>(response: Response): Promise<T> {
     throw new Error(`HTTP ${response.status}`);
   }
   return data as T;
+}
+
+async function postCartoLocalAction<T>(path: string, body: unknown) {
+  const payload = (body && typeof body === "object" ? body : {}) as { barcode?: string; productId?: string };
+
+  if (path === "/dev/scan") {
+    addLocalProduct(payload.productId, payload.barcode);
+    return { ok: true } as T;
+  }
+
+  if (path === "/dev/remove") {
+    removeLocalProduct(payload.productId, payload.barcode);
+    return { ok: true } as T;
+  }
+
+  if (path === "/dev/payment/success") {
+    confirmLocalGuestPayment();
+    return { ok: true } as T;
+  }
+
+  if (path === "/dev/payment/failure") {
+    failLocalGuestPayment();
+    return { ok: true } as T;
+  }
+
+  if (path === "/dev/payment/cancel") {
+    cancelLocalGuestCheckout();
+    return { ok: true } as T;
+  }
+
+  throw new Error("This developer action is only available in edge mode.");
 }

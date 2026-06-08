@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -11,7 +11,6 @@ import {
   type LayoutChangeEvent
 } from "react-native";
 import { Minus, Plus, RotateCcw } from "lucide-react-native";
-import { CART_EDGE_HTTP_URL } from "../realtime/config";
 import type { UiLanguage } from "../store/cartUiStore";
 import type { AppStrings, ThemePalette } from "../ui/appUi";
 import { scaleSize, shadowStyle } from "../ui/appUi";
@@ -40,26 +39,29 @@ interface MarkerDefinition {
   y: number;
 }
 
-const MAP_IMAGE_PATH = "/maps/store-map.png";
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 4;
 const ZOOM_STEP = 0.25;
 const DRAG_THRESHOLD = 3;
 const FALLBACK_VIEWPORT_HEIGHT = 520;
 const MARKERS: MarkerDefinition[] = [
-  { id: "dairy", x: 0.26, y: 0.31, color: "accent" },
-  { id: "snacks", x: 0.48, y: 0.46, color: "warning" },
-  { id: "drinks", x: 0.69, y: 0.28, color: "success" },
-  { id: "checkout", x: 0.82, y: 0.76, color: "accent" }
+  { id: "entrance", x: 0.26, y: 0.86, color: "accent" },
+  { id: "bakery", x: 0.3, y: 0.62, color: "warning" },
+  { id: "dairy", x: 0.34, y: 0.34, color: "accent" },
+  { id: "frozen", x: 0.56, y: 0.26, color: "success" },
+  { id: "snacks", x: 0.57, y: 0.48, color: "warning" },
+  { id: "drinks", x: 0.74, y: 0.32, color: "success" },
+  { id: "checkout", x: 0.74, y: 0.74, color: "accent" }
 ];
 
 export function StaticMapViewer({ language, strings, textScale, theme }: StaticMapViewerProps) {
+  const resolvedMapSource = useMemo(
+    () => Image.resolveAssetSource(require("../../assets/store-map-friendly.png")),
+    []
+  );
   const [containerSize, setContainerSize] = useState<Size>({ width: 0, height: 0 });
-  const [mapSize, setMapSize] = useState<Size | null>(null);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState<PanOffset>({ x: 0, y: 0 });
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const dragState = useRef<{
     moved: boolean;
     startPageX: number;
@@ -67,33 +69,9 @@ export function StaticMapViewer({ language, strings, textScale, theme }: StaticM
     startPan: PanOffset;
   } | null>(null);
 
-  const imageUrl = resolveMapAssetUrl(CART_EDGE_HTTP_URL, MAP_IMAGE_PATH);
-
-  useEffect(() => {
-    let active = true;
-
-    setLoading(true);
-    setLoadError(null);
-    setMapSize(null);
-
-    Image.getSize(
-      imageUrl,
-      (width, height) => {
-        if (!active) return;
-        setMapSize({ width, height });
-        setLoading(false);
-      },
-      () => {
-        if (!active) return;
-        setLoadError(`Unable to load the indoor map image from ${imageUrl}.`);
-        setLoading(false);
-      }
-    );
-
-    return () => {
-      active = false;
-    };
-  }, [imageUrl]);
+  const mapSize = resolvedMapSource.width && resolvedMapSource.height
+    ? { width: resolvedMapSource.width, height: resolvedMapSource.height }
+    : null;
 
   const viewportSize = {
     width: containerSize.width > 0 ? containerSize.width : 820,
@@ -235,45 +213,79 @@ export function StaticMapViewer({ language, strings, textScale, theme }: StaticM
           }
         ]}
         onLayout={handleLayout}
-        onStartShouldSetResponder={() => Boolean(renderedMap)}
         onMoveShouldSetResponder={() => Boolean(renderedMap)}
         onResponderGrant={handleResponderGrant}
         onResponderMove={handleResponderMove}
         onResponderRelease={handleResponderEnd}
         onResponderTerminate={handleResponderEnd}
+        onStartShouldSetResponder={() => Boolean(renderedMap)}
         {...(Platform.OS === "web" ? { onWheel: handleWheel } : {})}
       >
-        {loading ? (
-          <View style={styles.stateCard}>
-            <ActivityIndicator size="small" color={theme.accent} />
-            <Text style={[styles.stateTitle, { color: theme.textPrimary, fontSize: scaleSize(18, textScale) }]}>
-              {language === "ar" ? "تحميل الخريطة" : "Loading map"}
-            </Text>
-            <Text style={[styles.stateText, { color: theme.textMuted, fontSize: scaleSize(13, textScale) }]}>
-              {language === "ar" ? "يتم تجهيز صورة المتجر." : "Preparing the store layout image."}
-            </Text>
-          </View>
-        ) : loadError ? (
+        {!mapSize ? (
           <View style={[styles.stateCard, { backgroundColor: theme.errorSoft }]}>
             <Text style={[styles.errorTitle, { color: theme.error, fontSize: scaleSize(18, textScale) }]}>
-              {language === "ar" ? "الخريطة غير متاحة" : "Map unavailable"}
+              {language === "ar" ? "\u0627\u0644\u062e\u0631\u064a\u0637\u0629 \u063a\u064a\u0631 \u0645\u062a\u0627\u062d\u0629" : "Map unavailable"}
             </Text>
             <Text style={[styles.errorText, { color: theme.textSecondary, fontSize: scaleSize(13, textScale) }]}>
-              {loadError}
+              {language === "ar"
+                ? "\u0644\u0645 \u064a\u062a\u0645 \u062a\u062d\u0645\u064a\u0644 \u0635\u0648\u0631\u0629 \u0627\u0644\u062e\u0631\u064a\u0637\u0629."
+                : "The bundled store map image could not be loaded."}
             </Text>
           </View>
         ) : renderedMap ? (
           <View style={styles.mapCanvas}>
+            <View
+              pointerEvents="none"
+              style={[
+                styles.softGlow,
+                styles.softGlowTop,
+                { backgroundColor: theme.accentSoft }
+              ]}
+            />
+            <View
+              pointerEvents="none"
+              style={[
+                styles.softGlow,
+                styles.softGlowBottom,
+                { backgroundColor: theme.successSoft }
+              ]}
+            />
+            <View
+              pointerEvents="none"
+              style={[
+                styles.mapPlate,
+                {
+                  backgroundColor: theme.surface,
+                  height: renderedMap.height,
+                  left: renderedMap.left,
+                  top: renderedMap.top,
+                  width: renderedMap.width
+                }
+              ]}
+            />
             <Image
-              source={{ uri: imageUrl }}
-              resizeMode="stretch"
+              resizeMode="cover"
+              source={require("../../assets/store-map-friendly.png")}
               style={[
                 styles.mapImage,
                 {
-                  width: renderedMap.width,
                   height: renderedMap.height,
                   left: renderedMap.left,
-                  top: renderedMap.top
+                  opacity: 0.94,
+                  top: renderedMap.top,
+                  width: renderedMap.width
+                }
+              ]}
+            />
+            <View
+              pointerEvents="none"
+              style={[
+                styles.mapWash,
+                {
+                  height: renderedMap.height,
+                  left: renderedMap.left,
+                  top: renderedMap.top,
+                  width: renderedMap.width
                 }
               ]}
             />
@@ -303,6 +315,10 @@ export function StaticMapViewer({ language, strings, textScale, theme }: StaticM
           </View>
         ) : null}
       </View>
+
+      <Text style={[styles.legendTitle, { color: theme.textMuted, fontSize: scaleSize(11, textScale) }]}>
+        {strings.mapLegend}
+      </Text>
 
       <View style={styles.legendItems}>
         {MARKERS.map((marker) => {
@@ -355,14 +371,6 @@ function ControlButton({
   );
 }
 
-function resolveMapAssetUrl(baseUrl: string, assetPath: string) {
-  try {
-    return new URL(assetPath, `${baseUrl}/`).toString();
-  } catch {
-    return `${baseUrl}${assetPath}`;
-  }
-}
-
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
@@ -387,11 +395,15 @@ function constrainPan(
 
 function getMarkerLabel(markerId: string, language: UiLanguage) {
   const labels = {
-    dairy: language === "ar" ? "الألبان" : "Dairy",
-    snacks: language === "ar" ? "الوجبات" : "Snacks",
-    drinks: language === "ar" ? "المشروبات" : "Drinks",
-    checkout: language === "ar" ? "الدفع" : "Checkout"
+    entrance: language === "ar" ? "\u0627\u0644\u0645\u062f\u062e\u0644" : "Entrance",
+    bakery: language === "ar" ? "\u0627\u0644\u0645\u062e\u0628\u0648\u0632\u0627\u062a" : "Bakery",
+    dairy: language === "ar" ? "\u0627\u0644\u0623\u0644\u0628\u0627\u0646" : "Dairy",
+    frozen: language === "ar" ? "\u0627\u0644\u0645\u062c\u0645\u062f\u0627\u062a" : "Frozen",
+    snacks: language === "ar" ? "\u0627\u0644\u0648\u062c\u0628\u0627\u062a" : "Snacks",
+    drinks: language === "ar" ? "\u0627\u0644\u0645\u0634\u0631\u0648\u0628\u0627\u062a" : "Drinks",
+    checkout: language === "ar" ? "\u0627\u0644\u062f\u0641\u0639" : "Checkout"
   };
+
   return labels[markerId as keyof typeof labels] ?? markerId;
 }
 
@@ -436,7 +448,7 @@ const styles = StyleSheet.create({
   controlButton: {
     width: 40,
     height: 40,
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center"
@@ -446,7 +458,7 @@ const styles = StyleSheet.create({
   },
   resetButton: {
     minHeight: 40,
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
     paddingHorizontal: 12,
     flexDirection: "row",
@@ -463,7 +475,7 @@ const styles = StyleSheet.create({
   viewport: {
     flex: 1,
     minHeight: FALLBACK_VIEWPORT_HEIGHT,
-    borderRadius: 16,
+    borderRadius: 20,
     overflow: "hidden",
     borderWidth: 1,
     position: "relative"
@@ -474,8 +486,33 @@ const styles = StyleSheet.create({
     position: "relative",
     overflow: "hidden"
   },
+  softGlow: {
+    position: "absolute",
+    width: 220,
+    height: 220,
+    borderRadius: 999,
+    opacity: 0.62
+  },
+  softGlowTop: {
+    top: 24,
+    left: 28
+  },
+  softGlowBottom: {
+    right: 36,
+    bottom: 28
+  },
+  mapPlate: {
+    position: "absolute",
+    borderRadius: 28
+  },
   mapImage: {
-    position: "absolute"
+    position: "absolute",
+    borderRadius: 28
+  },
+  mapWash: {
+    position: "absolute",
+    borderRadius: 28,
+    backgroundColor: "rgba(255, 255, 255, 0.08)"
   },
   markerWrap: {
     position: "absolute",
@@ -486,10 +523,10 @@ const styles = StyleSheet.create({
   },
   markerHalo: {
     position: "absolute",
-    width: 28,
-    height: 28,
+    width: 30,
+    height: 30,
     borderRadius: 999,
-    opacity: 0.7
+    opacity: 0.78
   },
   markerDot: {
     width: 14,
@@ -528,6 +565,10 @@ const styles = StyleSheet.create({
   errorText: {
     fontWeight: "600",
     textAlign: "center"
+  },
+  legendTitle: {
+    fontWeight: "900",
+    textTransform: "uppercase"
   },
   legendItems: {
     flexDirection: "row",

@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { Animated, StyleSheet, Text, View } from "react-native";
-import { AlertTriangle, CheckCircle2 } from "lucide-react-native";
+import { AlertTriangle, CheckCircle2, Trash2 } from "lucide-react-native";
 import type { ThemePalette } from "../ui/appUi";
 import { scaleSize } from "../ui/appUi";
 
 export interface ProductFeedback {
+  icon?: "check" | "remove" | "alert";
   id: string;
   message: string;
   status: "success" | "error";
+  tone?: "success" | "warning" | "error";
   title: string;
 }
 
@@ -62,11 +64,19 @@ export function ProductFeedbackOverlay({ feedback, textScale, theme }: ProductFe
 
   if (!visibleFeedback) return null;
 
-  const success = visibleFeedback.status === "success";
-  const Icon = success ? CheckCircle2 : AlertTriangle;
-  const colors = success
-    ? { main: theme.success, soft: theme.successSoft }
-    : { main: theme.error, soft: theme.errorSoft };
+  const tone = visibleFeedback.tone ?? (visibleFeedback.status === "success" ? "success" : "error");
+  const Icon = visibleFeedback.icon === "remove"
+    ? Trash2
+    : visibleFeedback.icon === "alert"
+      ? AlertTriangle
+      : visibleFeedback.status === "success"
+        ? CheckCircle2
+        : AlertTriangle;
+  const colors = tone === "warning"
+    ? { main: theme.warning, soft: theme.warningSoft }
+    : tone === "error"
+      ? { main: theme.error, soft: theme.errorSoft }
+      : { main: theme.success, soft: theme.successSoft };
 
   return (
     <Animated.View pointerEvents="none" style={[styles.backdrop, { opacity }]}>

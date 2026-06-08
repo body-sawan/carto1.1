@@ -17,10 +17,15 @@ const INITIAL_STATE: BackendHealthSnapshot = {
   value: null
 };
 
-export function useBackendHealth() {
+export function useBackendHealth(enabled = true) {
   const [health, setHealth] = useState<BackendHealthSnapshot>(INITIAL_STATE);
 
   useEffect(() => {
+    if (!enabled) {
+      setHealth(INITIAL_STATE);
+      return undefined;
+    }
+
     let mounted = true;
     let pollTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -56,7 +61,7 @@ export function useBackendHealth() {
       mounted = false;
       if (pollTimer) clearTimeout(pollTimer);
     };
-  }, []);
+  }, [enabled]);
 
   return health;
 }

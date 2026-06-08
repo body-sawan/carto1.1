@@ -5,13 +5,13 @@ import {
   Clock3,
   QrCode,
   Receipt,
-  ShoppingBag,
-  ShoppingCart
+  ShoppingBag
 } from "lucide-react-native";
 import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
-import type { CartSnapshot, UiLanguage } from "../store/cartUiStore";
+import type { CartSnapshot, SessionControlMode, UiLanguage } from "../store/cartUiStore";
 import type { AppStrings, ThemePalette } from "../ui/appUi";
 import { formatCurrency, formatStateLabel, scaleSize, shadowStyle } from "../ui/appUi";
+import { CartoLogo } from "./CartoLogo";
 import { RevealView } from "./RevealView";
 
 interface CheckoutScreenProps {
@@ -23,6 +23,7 @@ interface CheckoutScreenProps {
   onResetSession: () => void;
   onRetryPayment: () => void;
   onReturnToShopping: () => void;
+  sessionControlMode: SessionControlMode;
   snapshot: CartSnapshot | null;
   strings: AppStrings;
   textScale: number;
@@ -38,6 +39,7 @@ export function CheckoutScreen({
   onResetSession,
   onRetryPayment,
   onReturnToShopping,
+  sessionControlMode,
   snapshot,
   strings,
   textScale,
@@ -52,6 +54,7 @@ export function CheckoutScreen({
   const StatusIcon = getStatusIcon(state);
   const canStartCheckout = connected && state === "SHOPPING" && cartItems.length > 0;
   const showReturn = state !== "PAID" && state !== "WAITING_FOR_LIST" && state !== "SESSION_CLOSED";
+  const readOnlySession = sessionControlMode === "read_only";
 
   return (
     <View style={styles.root}>
@@ -86,12 +89,7 @@ export function CheckoutScreen({
             </Pressable>
           ) : null}
 
-          <View style={[styles.brandMark, { backgroundColor: theme.accentSoft }]}>
-            <ShoppingCart size={18} color={theme.accent} />
-            <Text style={[styles.brandMarkText, { color: theme.accent, fontSize: scaleSize(14, textScale) }]}>
-              {strings.appName}
-            </Text>
-          </View>
+          <CartoLogo height={44} radius={14} resizeMode="cover" width={116} />
 
           <View style={styles.headerCopy}>
             <Text style={[styles.title, { color: theme.textPrimary, fontSize: scaleSize(28, textScale) }]}>
@@ -199,6 +197,17 @@ export function CheckoutScreen({
             </View>
           </View>
 
+          {readOnlySession ? (
+            <View style={[styles.readOnlyCard, { backgroundColor: theme.warningSoft, borderColor: theme.warning }]}>
+              <Text style={[styles.readOnlyTitle, { color: theme.warning, fontSize: scaleSize(14, textScale) }]}>
+                Checkout is read-only in backend-paired sessions
+              </Text>
+              <Text style={[styles.readOnlyText, { color: theme.textSecondary, fontSize: scaleSize(12, textScale) }]}>
+                Device checkout and close-session endpoints are not available in the teammate backend yet.
+              </Text>
+            </View>
+          ) : null}
+
           <View style={[styles.placeholderCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <View style={styles.placeholderHeader}>
               <Receipt size={18} color={theme.textPrimary} />
@@ -219,19 +228,19 @@ export function CheckoutScreen({
 
           <View style={styles.buttonStack}>
             {(state === "SHOPPING" || state === "CHECKOUT_PENDING") ? (
-              <PrimaryButton
-                disabled={!canStartCheckout}
-                label={strings.confirmCheckout}
-                onPress={onConfirmCheckout}
-                textScale={textScale}
-                theme={theme}
-              />
+                <PrimaryButton
+                  disabled={!canStartCheckout || readOnlySession}
+                  label={strings.confirmCheckout}
+                  onPress={onConfirmCheckout}
+                  textScale={textScale}
+                  theme={theme}
+                />
             ) : null}
 
             {state === "WAITING_PAYMENT" ? (
               <>
                 <PrimaryButton
-                  disabled={!connected}
+                  disabled={!connected || readOnlySession}
                   label={strings.confirmPayment}
                   onPress={onConfirmPayment}
                   textScale={textScale}
@@ -249,7 +258,7 @@ export function CheckoutScreen({
             {state === "PAYMENT_FAILED" ? (
               <>
                 <PrimaryButton
-                  disabled={!connected}
+                  disabled={!connected || readOnlySession}
                   label={strings.retryPayment}
                   onPress={onRetryPayment}
                   textScale={textScale}
@@ -266,7 +275,7 @@ export function CheckoutScreen({
 
             {(state === "PAID" || state === "WAITING_FOR_LIST" || state === "SESSION_CLOSED") ? (
               <PrimaryButton
-                disabled={!connected}
+                disabled={!connected || readOnlySession}
                 label={strings.startNewSession}
                 onPress={onResetSession}
                 textScale={textScale}
@@ -398,17 +407,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 14,
     flexWrap: "wrap"
-  },
-  brandMark: {
-    minHeight: 42,
-    borderRadius: 999,
-    paddingHorizontal: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8
-  },
-  brandMarkText: {
-    fontWeight: "900"
   },
   backButton: {
     minHeight: 44,
@@ -556,6 +554,19 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: 14,
     gap: 12
+  },
+  readOnlyCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 14,
+    gap: 6
+  },
+  readOnlyTitle: {
+    fontWeight: "900"
+  },
+  readOnlyText: {
+    fontWeight: "700",
+    lineHeight: 19
   },
   placeholderHeader: {
     flexDirection: "row",

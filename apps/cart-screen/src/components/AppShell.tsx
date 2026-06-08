@@ -1,21 +1,22 @@
-import { ShoppingCart, X } from "lucide-react-native";
+import { X } from "lucide-react-native";
 import type { ReactNode } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import type { CartSnapshot } from "../store/cartUiStore";
-import type { UiLanguage } from "../store/cartUiStore";
+import type { CartBackendStatus, CartSnapshot, SessionControlMode, UiLanguage } from "../store/cartUiStore";
 import type { AppStrings, ThemePalette } from "../ui/appUi";
 import {
   formatStateLabel,
   scaleSize,
   shadowStyle
 } from "../ui/appUi";
+import { CartoLogo } from "./CartoLogo";
 
 interface AppShellProps {
-  backendStatus: "checking" | "online" | "offline";
+  backendStatus: CartBackendStatus;
   children: ReactNode;
   connected: boolean;
   language: UiLanguage;
   onCloseSession: () => void;
+  sessionControlMode: SessionControlMode;
   snapshot: CartSnapshot | null;
   strings: AppStrings;
   textScale: number;
@@ -28,16 +29,14 @@ export function AppShell({
   connected,
   language,
   onCloseSession,
+  sessionControlMode,
   snapshot,
   strings,
   textScale,
   theme
 }: AppShellProps) {
-  const backendLabel = backendStatus === "online"
-    ? strings.backendActive
-    : backendStatus === "offline"
-      ? strings.backendOffline
-      : strings.backendChecking;
+  const backendLabel = formatBackendLabel(backendStatus, strings);
+  const closeDisabled = sessionControlMode === "read_only";
 
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
@@ -53,13 +52,8 @@ export function AppShell({
           ]}
         >
           <View style={styles.brandGroup}>
-            <View style={[styles.brandIconWrap, { backgroundColor: theme.accentSoft }]}>
-              <ShoppingCart size={22} color={theme.accent} />
-            </View>
+            <CartoLogo height={54} radius={18} resizeMode="cover" width={150} />
             <View style={styles.brandCopy}>
-              <Text style={[styles.brand, { color: theme.textPrimary, fontSize: scaleSize(24, textScale) }]}>
-                {strings.appName}
-              </Text>
               <Text style={[styles.subtitle, { color: theme.textMuted, fontSize: scaleSize(13, textScale) }]}>
                 {strings.appSubtitle}
               </Text>
@@ -71,7 +65,7 @@ export function AppShell({
               label={`${strings.backendStatus}: ${backendLabel}`}
               textScale={textScale}
               theme={theme}
-              tone={backendStatus === "online" ? "success" : backendStatus === "offline" ? "error" : "warning"}
+              tone={backendStatus === "active" ? "success" : backendStatus === "offline" ? "error" : backendStatus === "waiting" ? "warning" : "accent"}
             />
             <StatusPill
               label={`${strings.screenStatus}: ${connected ? strings.screenConnected : strings.screenDisconnected}`}
@@ -85,21 +79,31 @@ export function AppShell({
               theme={theme}
               tone="neutral"
             />
+            {sessionControlMode === "read_only" ? (
+              <StatusPill
+                label="Backend-paired session is read-only on this cart"
+                textScale={textScale}
+                theme={theme}
+                tone="warning"
+              />
+            ) : null}
 
             <Pressable
               accessibilityRole="button"
+              disabled={closeDisabled}
               onPress={onCloseSession}
               style={({ pressed }) => [
                 styles.closeButton,
                 {
-                  backgroundColor: theme.errorSoft,
-                  borderColor: theme.error,
-                  transform: [{ scale: pressed ? 0.98 : 1 }]
+                  backgroundColor: closeDisabled ? theme.cardMuted : theme.errorSoft,
+                  borderColor: closeDisabled ? theme.border : theme.error,
+                  opacity: closeDisabled ? 0.7 : 1,
+                  transform: [{ scale: pressed && !closeDisabled ? 0.98 : 1 }]
                 }
               ]}
             >
-              <X size={16} color={theme.error} />
-              <Text style={[styles.closeButtonText, { color: theme.error, fontSize: scaleSize(12, textScale) }]}>
+              <X size={16} color={closeDisabled ? theme.textMuted : theme.error} />
+              <Text style={[styles.closeButtonText, { color: closeDisabled ? theme.textMuted : theme.error, fontSize: scaleSize(12, textScale) }]}>
                 {strings.closeSession}
               </Text>
             </Pressable>
@@ -110,6 +114,14 @@ export function AppShell({
       </View>
     </View>
   );
+}
+
+function formatBackendLabel(status: CartBackendStatus, strings: AppStrings) {
+  if (status === "connected") return "Connected";
+  if (status === "waiting") return "Waiting for list";
+  if (status === "active") return "Active session";
+  if (status === "offline") return strings.backendOffline;
+  return strings.backendChecking;
 }
 
 function StatusPill({
@@ -166,25 +178,16 @@ const styles = StyleSheet.create({
   },
   brandGroup: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     gap: 12,
-    minWidth: 240
-  },
-  brandIconWrap: {
-    width: 52,
-    height: 52,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center"
+    minWidth: 252
   },
   brandCopy: {
     gap: 4
   },
-  brand: {
-    fontWeight: "900"
-  },
   subtitle: {
-    fontWeight: "600"
+    fontWeight: "700",
+    maxWidth: 260
   },
   summaryGroup: {
     flexDirection: "row",

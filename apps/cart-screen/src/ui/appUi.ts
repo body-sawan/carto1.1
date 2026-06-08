@@ -124,6 +124,9 @@ export interface AppStrings {
   openWebsiteList: string;
   productAdded: string;
   productNotAdded: string;
+  productNotRemoved: string;
+  productQuantityUpdated: string;
+  productRemoved: string;
   shoppingListHint: string;
   qrLoading: string;
   pairingReady: string;
@@ -294,6 +297,9 @@ const english: AppStrings = {
   openWebsiteList: "Open the website and create a shopping list to enjoy the full experience.",
   productAdded: "Added to cart",
   productNotAdded: "Product was not added",
+  productNotRemoved: "Product was not removed",
+  productQuantityUpdated: "Quantity updated",
+  productRemoved: "Removed from cart",
   shoppingListHint: "The list sent from the website will appear here.",
   qrLoading: "Preparing QR pairing",
   pairingReady: "Ready to pair"
@@ -401,6 +407,9 @@ const arabic: AppStrings = {
   openWebsiteList: "افتح الموقع وأنشئ قائمة تسوق للاستفادة من التجربة الكاملة.",
   productAdded: "تمت الإضافة إلى السلة",
   productNotAdded: "لم تتم إضافة المنتج",
+  productNotRemoved: "لم تتم إزالة المنتج",
+  productQuantityUpdated: "تم تحديث الكمية",
+  productRemoved: "تمت الإزالة من السلة",
   shoppingListHint: "ستظهر هنا القائمة المرسلة من الموقع.",
   qrLoading: "جارٍ تجهيز رمز الربط",
   pairingReady: "جاهز للربط"

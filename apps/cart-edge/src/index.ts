@@ -188,6 +188,10 @@ function assertPairingCodeAndExpiry(session: CartSession, pairingCode: string) {
     throw new HttpError(403, "INVALID_PAIRING_CODE", "Invalid pairing code.");
   }
 
+  if (!session.pairing.expiresAt) {
+    throw new HttpError(410, "PAIRING_EXPIRED", "This cart pairing session has expired.");
+  }
+
   const expiresAt = Date.parse(session.pairing.expiresAt);
   if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
     throw new HttpError(410, "PAIRING_EXPIRED", "This cart pairing session has expired.");

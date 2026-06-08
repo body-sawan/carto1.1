@@ -4,7 +4,7 @@ import { CartSocketClient } from "./socketClient";
 import { CART_EDGE_WS_URL } from "./config";
 import { useCartUiStore } from "../store/cartUiStore";
 
-export function useCartSocket() {
+export function useCartSocket(enabled = true) {
   const setSnapshot = useCartUiStore((state) => state.setSnapshot);
   const setConnected = useCartUiStore((state) => state.setConnected);
   const clientRef = useRef<CartSocketClient | null>(null);
@@ -24,10 +24,15 @@ export function useCartSocket() {
   useEffect(() => {
     const client = clientRef.current;
     if (!client) return undefined;
+    if (!enabled) {
+      client.close();
+      setConnected(false);
+      return undefined;
+    }
 
     client.connect();
     return () => client.close();
-  }, []);
+  }, [enabled, setConnected]);
 
   return clientRef.current!;
 }

@@ -1,12 +1,14 @@
-import { ShoppingCart } from "lucide-react-native";
 import { Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import QRCode from "react-native-qrcode-svg";
-import type { CartSnapshot, UiThemeName } from "../store/cartUiStore";
+import type { CartBackendStatus, CartSnapshot, UiThemeName } from "../store/cartUiStore";
 import type { AppStrings, ThemePalette } from "../ui/appUi";
 import { scaleSize, shadowStyle } from "../ui/appUi";
+import { CartoLogo } from "./CartoLogo";
 import { RevealView } from "./RevealView";
 
 interface WelcomeScreenProps {
+  backendStatus: CartBackendStatus;
+  cartCode: string;
   connected: boolean;
   onContinueWithoutList: () => void;
   onThemeChange: (theme: UiThemeName) => void;
@@ -18,6 +20,8 @@ interface WelcomeScreenProps {
 }
 
 export function WelcomeScreen({
+  backendStatus,
+  cartCode,
   connected,
   onContinueWithoutList,
   onThemeChange,
@@ -31,6 +35,8 @@ export function WelcomeScreen({
   const compact = width < 920;
   const pairing = snapshot?.pairing;
   const themeOptions: UiThemeName[] = ["premium_light", "friendly_supermarket", "carto_blue_green"];
+  const pairingStatusLabel = getPairingStatusLabel(backendStatus, strings);
+  const continueDisabled = !connected || backendStatus === "offline";
 
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
@@ -44,12 +50,12 @@ export function WelcomeScreen({
           shadowStyle(theme, 18)
         ]}
       >
-        <View style={[styles.brandChip, { backgroundColor: theme.accentSoft }]}>
-          <ShoppingCart size={26} color={theme.accent} />
-          <Text style={[styles.brandChipText, { color: theme.accent, fontSize: scaleSize(16, textScale) }]}>
-            {strings.appName}
-          </Text>
-        </View>
+        <CartoLogo
+          height={compact ? 112 : 136}
+          radius={26}
+          resizeMode="cover"
+          width={compact ? 236 : 300}
+        />
 
         <Text style={[styles.eyebrow, { color: theme.accent, fontSize: scaleSize(12, textScale) }]}>
           {strings.welcomeEyebrow}
@@ -69,8 +75,8 @@ export function WelcomeScreen({
             theme={theme}
           />
           <StatusBadge
-            label={pairing ? strings.pairingReady : strings.qrLoading}
-            tone={pairing ? "accent" : "warning"}
+            label={pairingStatusLabel}
+            tone={backendStatus === "offline" ? "error" : backendStatus === "active" ? "success" : pairing ? "accent" : "warning"}
             textScale={textScale}
             theme={theme}
           />
@@ -99,15 +105,24 @@ export function WelcomeScreen({
           </Text>
         </View>
 
+        <View style={styles.codeBlock}>
+          <Text style={[styles.codeLabel, { color: theme.textMuted, fontSize: scaleSize(11, textScale) }]}>
+            Cart code
+          </Text>
+          <Text style={[styles.cartCodeValue, { color: theme.textPrimary, fontSize: scaleSize(20, textScale) }]}>
+            {cartCode || pairing?.cartId || "------"}
+          </Text>
+        </View>
+
         <Pressable
           accessibilityRole="button"
-          disabled={!connected}
+          disabled={continueDisabled}
           onPress={onContinueWithoutList}
           style={({ pressed }) => [
             styles.primaryButton,
             {
-              backgroundColor: connected ? theme.accent : theme.border,
-              transform: [{ scale: pressed && connected ? 0.98 : 1 }]
+              backgroundColor: continueDisabled ? theme.border : theme.accent,
+              transform: [{ scale: pressed && !continueDisabled ? 0.98 : 1 }]
             }
           ]}
         >
@@ -168,6 +183,14 @@ function getThemeLabel(themeName: UiThemeName, strings: AppStrings) {
   return strings.themeCartoBlueGreen;
 }
 
+function getPairingStatusLabel(status: CartBackendStatus, strings: AppStrings) {
+  if (status === "waiting") return "Waiting for shopping list";
+  if (status === "active") return "Active session";
+  if (status === "offline") return "Backend unavailable";
+  if (status === "connected") return strings.pairingReady;
+  return strings.qrLoading;
+}
+
 function StatusBadge({
   label,
   textScale,
@@ -212,17 +235,6 @@ const styles = StyleSheet.create({
     paddingVertical: 30,
     gap: 16,
     alignItems: "center"
-  },
-  brandChip: {
-    minHeight: 48,
-    borderRadius: 999,
-    paddingHorizontal: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10
-  },
-  brandChipText: {
-    fontWeight: "900"
   },
   eyebrow: {
     fontWeight: "900",
@@ -302,6 +314,10 @@ const styles = StyleSheet.create({
   },
   codeValue: {
     fontWeight: "900"
+  },
+  cartCodeValue: {
+    fontWeight: "900",
+    letterSpacing: 0.6
   },
   themeSection: {
     width: "100%",

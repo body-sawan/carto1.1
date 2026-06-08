@@ -9,8 +9,8 @@ import { CheckoutSuccessOverlay } from "../components/CheckoutSuccessOverlay";
 import { HomeScreen } from "../components/HomeScreen";
 import { ProductFeedbackOverlay, type ProductFeedback } from "../components/ProductFeedbackOverlay";
 import { WelcomeScreen } from "../components/WelcomeScreen";
-import { useBackendHealth } from "../realtime/useBackendHealth";
-import { useCartSocket } from "../realtime/useCartSocket";
+import { CART_CODE } from "../realtime/config";
+import { useCartRuntime } from "../realtime/useCartRuntime";
 import { useCartUiStore } from "../store/cartUiStore";
 import { getAppStrings, getTextScale, getThemePalette, scaleSize } from "../ui/appUi";
 
@@ -19,12 +19,13 @@ type AppFlowStage = "welcome" | "transition" | "shopping" | "receipt";
 const RECEIPT_STATES = new Set(["CHECKOUT_PENDING", "WAITING_PAYMENT", "PAYMENT_FAILED", "PAID"]);
 
 export function CartScreen() {
-  const socket = useCartSocket();
-  const backendHealth = useBackendHealth();
+  const runtime = useCartRuntime();
+  const backendStatus = useCartUiStore((state) => state.backendStatus);
   const snapshot = useCartUiStore((state) => state.snapshot);
   const clearSnapshot = useCartUiStore((state) => state.clearSnapshot);
   const connected = useCartUiStore((state) => state.connected);
   const language = useCartUiStore((state) => state.language);
+  const sessionControlMode = useCartUiStore((state) => state.sessionControlMode);
   const themeName = useCartUiStore((state) => state.theme);
   const setTheme = useCartUiStore((state) => state.setTheme);
   const textSize = useCartUiStore((state) => state.textSize);
@@ -85,23 +86,20 @@ export function CartScreen() {
     }
 
     if (previous && previous.sessionId === snapshot.sessionId && previous.state === "SHOPPING" && snapshot.state === "SHOPPING") {
-      const addedProduct = findAddedProduct(previous, snapshot);
-      if (addedProduct) {
-        showProductOverlay({
-          id: `${snapshot.sessionId}-${Date.now()}`,
-          message: strings.productAdded,
-          status: "success",
-          title: addedProduct
-        });
+      const cartFeedbackChange = findCartFeedbackChange(previous, snapshot);
+      if (cartFeedbackChange) {
+        showProductOverlay(buildCartFeedback(cartFeedbackChange, snapshot.sessionId, strings));
       }
 
       const latestErrorAlert = findLatestNewErrorAlert(previous, snapshot);
       if (latestErrorAlert) {
+        const removeFailure = looksLikeRemoveFailure(latestErrorAlert.message);
         showProductOverlay({
           id: latestErrorAlert.id,
           message: latestErrorAlert.message,
           status: "error",
-          title: strings.productNotAdded
+          title: removeFailure ? strings.productNotRemoved : strings.productNotAdded,
+          icon: removeFailure ? "remove" : "alert"
         });
       }
     }
@@ -111,7 +109,13 @@ export function CartScreen() {
       if (checkoutResetTimerRef.current) clearTimeout(checkoutResetTimerRef.current);
       checkoutResetTimerRef.current = setTimeout(() => {
         resetToWelcome();
-        socket.resetSession();
+        if (sessionControlMode !== "read_only") {
+          try {
+            runtime.resetSession();
+          } catch {
+            // The success overlay still clears the local guest flow even if an edge reset is unavailable.
+          }
+        }
       }, 5000);
     }
 
@@ -120,7 +124,16 @@ export function CartScreen() {
     }
 
     previousSnapshotRef.current = snapshot;
-  }, [snapshot, socket, strings.productAdded, strings.productNotAdded]);
+  }, [
+    runtime,
+    sessionControlMode,
+    snapshot,
+    strings.productAdded,
+    strings.productNotAdded,
+    strings.productNotRemoved,
+    strings.productQuantityUpdated,
+    strings.productRemoved
+  ]);
 
   function showProductOverlay(feedback: ProductFeedback) {
     if (productFeedbackTimerRef.current) clearTimeout(productFeedbackTimerRef.current);
@@ -147,12 +160,25 @@ export function CartScreen() {
   }
 
   function handleCloseSession() {
+    if (sessionControlMode === "read_only") {
+      showActionError(strings.closeSession, "This backend-paired session can only be closed after teammate device endpoints are added.");
+      return;
+    }
+
     resetToWelcome();
-    socket.resetSession();
+    try {
+      runtime.resetSession();
+    } catch (error) {
+      showActionError(strings.closeSession, error instanceof Error ? error.message : "Unable to close this session.");
+    }
   }
 
   function handleContinueWithoutList() {
-    socket.startShopping();
+    try {
+      runtime.startShopping();
+    } catch (error) {
+      showActionError(strings.continueWithoutList, error instanceof Error ? error.message : "Unable to start shopping.");
+    }
   }
 
   function handleBrandTransitionComplete() {
@@ -163,9 +189,16 @@ export function CartScreen() {
   }
 
   function handleReturnToShopping() {
-    if (snapshot?.state === "WAITING_PAYMENT" || snapshot?.state === "PAYMENT_FAILED" || snapshot?.state === "CHECKOUT_PENDING") {
+    if (
+      sessionControlMode !== "read_only"
+      && (snapshot?.state === "WAITING_PAYMENT" || snapshot?.state === "PAYMENT_FAILED" || snapshot?.state === "CHECKOUT_PENDING")
+    ) {
       pendingReturnToShoppingRef.current = true;
-      socket.cancelCheckout();
+      try {
+        runtime.cancelCheckout();
+      } catch (error) {
+        showActionError(strings.returnToShopping, error instanceof Error ? error.message : "Unable to return to shopping.");
+      }
       return;
     }
 
@@ -212,12 +245,13 @@ export function CartScreen() {
       <CheckoutScreen
         connected={connected}
         language={language}
-        onCancelCheckout={() => socket.cancelCheckout()}
-        onConfirmCheckout={() => socket.startCheckout()}
-        onConfirmPayment={() => socket.confirmPayment()}
+        onCancelCheckout={() => runRuntimeAction(runtime.cancelCheckout, strings.cancelCheckout)}
+        onConfirmCheckout={() => runRuntimeAction(runtime.startCheckout, strings.confirmCheckout)}
+        onConfirmPayment={() => runRuntimeAction(runtime.confirmPayment, strings.confirmPayment)}
         onResetSession={handleCloseSession}
-        onRetryPayment={() => socket.retryPayment()}
+        onRetryPayment={() => runRuntimeAction(runtime.retryPayment, strings.retryPayment)}
         onReturnToShopping={handleReturnToShopping}
+        sessionControlMode={sessionControlMode}
         snapshot={snapshot}
         strings={strings}
         textScale={textScale}
@@ -227,10 +261,11 @@ export function CartScreen() {
   } else if (stage === "shopping") {
     content = (
       <AppShell
-        backendStatus={backendHealth.status}
+        backendStatus={backendStatus}
         connected={connected}
         language={language}
         onCloseSession={handleCloseSession}
+        sessionControlMode={sessionControlMode}
         snapshot={snapshot}
         strings={strings}
         textScale={textScale}
@@ -242,6 +277,8 @@ export function CartScreen() {
   } else {
     content = (
       <WelcomeScreen
+        backendStatus={backendStatus}
+        cartCode={CART_CODE}
         connected={connected}
         onContinueWithoutList={handleContinueWithoutList}
         onThemeChange={setTheme}
@@ -263,29 +300,31 @@ export function CartScreen() {
         connected={connected}
         snapshot={snapshot}
         onResetSession={handleCloseSession}
-        onStartShopping={() => socket.startShopping()}
-        onStartCheckout={() => socket.startCheckout()}
-        onRetryPayment={() => socket.retryPayment()}
-        onCancelCheckout={() => socket.cancelCheckout()}
+        onStartShopping={() => runRuntimeAction(runtime.startShopping, strings.startShopping)}
+        onStartCheckout={() => runRuntimeAction(runtime.startCheckout, strings.confirmCheckout)}
+        onRetryPayment={() => runRuntimeAction(runtime.retryPayment, strings.retryPayment)}
+        onCancelCheckout={() => runRuntimeAction(runtime.cancelCheckout, strings.cancelCheckout)}
       />
     </SafeAreaView>
   );
-}
 
-function findAddedProduct(previous: CartSnapshot, next: CartSnapshot) {
-  const previousQuantities = new Map<string, number>();
-  for (const item of previous.cartItems) {
-    previousQuantities.set(item.productId, (previousQuantities.get(item.productId) ?? 0) + item.quantity);
-  }
-
-  for (const item of next.cartItems) {
-    const previousQuantity = previousQuantities.get(item.productId) ?? 0;
-    if (item.quantity > previousQuantity) {
-      return item.name;
+  function runRuntimeAction(action: () => void, title: string) {
+    try {
+      action();
+    } catch (error) {
+      showActionError(title, error instanceof Error ? error.message : "This action is not available right now.");
     }
   }
 
-  return null;
+  function showActionError(title: string, message: string) {
+    showProductOverlay({
+      id: `runtime-${Date.now()}`,
+      icon: "alert",
+      message,
+      status: "error",
+      title
+    });
+  }
 }
 
 function findLatestNewErrorAlert(previous: CartSnapshot, next: CartSnapshot): Alert | null {
@@ -299,6 +338,92 @@ function findLatestNewErrorAlert(previous: CartSnapshot, next: CartSnapshot): Al
   }
 
   return null;
+}
+
+type CartFeedbackChange =
+  | { kind: "added"; productName: string }
+  | { kind: "quantity_updated"; productName: string }
+  | { kind: "removed"; productName: string };
+
+function findCartFeedbackChange(previous: CartSnapshot, next: CartSnapshot): CartFeedbackChange | null {
+  const previousItems = summarizeCart(previous);
+  const nextItems = summarizeCart(next);
+
+  for (const [productId, nextItem] of nextItems) {
+    const previousQuantity = previousItems.get(productId)?.quantity ?? 0;
+
+    if (nextItem.quantity > previousQuantity) {
+      return { kind: "added", productName: nextItem.name };
+    }
+
+    if (nextItem.quantity < previousQuantity) {
+      return { kind: "quantity_updated", productName: nextItem.name };
+    }
+  }
+
+  for (const [productId, previousItem] of previousItems) {
+    if (!nextItems.has(productId)) {
+      return { kind: "removed", productName: previousItem.name };
+    }
+  }
+
+  return null;
+}
+
+function summarizeCart(snapshot: CartSnapshot) {
+  const items = new Map<string, { name: string; quantity: number }>();
+
+  for (const item of snapshot.cartItems) {
+    const current = items.get(item.productId);
+    items.set(item.productId, {
+      name: item.name,
+      quantity: (current?.quantity ?? 0) + item.quantity
+    });
+  }
+
+  return items;
+}
+
+function buildCartFeedback(change: CartFeedbackChange, sessionId: string | null, strings: ReturnType<typeof getAppStrings>): ProductFeedback {
+  const idPrefix = sessionId ?? "cart";
+
+  if (change.kind === "removed") {
+    return {
+      id: `${idPrefix}-${Date.now()}-removed`,
+      icon: "remove",
+      message: strings.productRemoved,
+      status: "success",
+      title: change.productName,
+      tone: "warning"
+    };
+  }
+
+  if (change.kind === "quantity_updated") {
+    return {
+      id: `${idPrefix}-${Date.now()}-quantity`,
+      icon: "remove",
+      message: strings.productQuantityUpdated,
+      status: "success",
+      title: change.productName,
+      tone: "warning"
+    };
+  }
+
+  return {
+    id: `${idPrefix}-${Date.now()}-added`,
+    icon: "check",
+    message: strings.productAdded,
+    status: "success",
+    title: change.productName,
+    tone: "success"
+  };
+}
+
+function looksLikeRemoveFailure(message: string) {
+  const normalized = message.toLowerCase();
+  return normalized.includes("remove")
+    || normalized.includes("removed")
+    || normalized.includes("not in cart");
 }
 
 const styles = StyleSheet.create({

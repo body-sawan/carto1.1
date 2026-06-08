@@ -131,14 +131,14 @@ export interface PairingInfo {
   qrPayload: string;
   pairingCode: string;
   cartId: string;
-  sessionId: string;
-  transport: "ble";
-  bluetoothDeviceName: string;
-  serviceUuid: string;
-  writeCharacteristicUuid: string;
-  notifyCharacteristicUuid: string;
+  sessionId?: string;
+  transport?: "ble" | "backend";
+  bluetoothDeviceName?: string;
+  serviceUuid?: string;
+  writeCharacteristicUuid?: string;
+  notifyCharacteristicUuid?: string;
   receiveListUrl?: string;
-  expiresAt: string;
+  expiresAt?: string;
 }
 
 export interface Alert {

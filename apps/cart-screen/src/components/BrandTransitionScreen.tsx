@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
-import { Animated, Easing, StyleSheet, Text, View } from "react-native";
+import { Animated, Easing, StyleSheet, View } from "react-native";
 import { ShoppingCart } from "lucide-react-native";
 import type { ThemePalette } from "../ui/appUi";
+import { CartoLogo } from "./CartoLogo";
 
 interface BrandTransitionScreenProps {
   appName: string;
@@ -69,18 +70,18 @@ export function BrandTransitionScreen({ appName, onComplete, theme }: BrandTrans
   return (
     <Animated.View style={[styles.root, { backgroundColor: theme.background, opacity: stageOpacity }]}>
       <View style={styles.stage}>
-        <Animated.Text
+        <Animated.View
+          accessibilityLabel={`${appName} logo`}
           style={[
-            styles.word,
+            styles.wordMark,
             {
-              color: theme.textPrimary,
               opacity: piecesOpacity,
               transform: [{ translateX: wordX }]
             }
           ]}
         >
-          {appName}
-        </Animated.Text>
+          <CartoLogo height={116} radius={28} resizeMode="cover" width={270} />
+        </Animated.View>
 
         <Animated.View
           style={[
@@ -99,17 +100,12 @@ export function BrandTransitionScreen({ appName, onComplete, theme }: BrandTrans
           style={[
             styles.finalMark,
             {
-              backgroundColor: theme.surface,
-              borderColor: theme.border,
               opacity: finalOpacity,
               transform: [{ scale: finalScale }]
             }
           ]}
         >
-          <View style={[styles.finalIcon, { backgroundColor: theme.accentSoft }]}>
-            <ShoppingCart size={32} color={theme.accent} />
-          </View>
-          <Text style={[styles.finalText, { color: theme.textPrimary }]}>{appName}</Text>
+          <CartoLogo height={150} radius={34} resizeMode="cover" width={348} />
         </Animated.View>
       </View>
     </Animated.View>
@@ -130,12 +126,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center"
   },
-  word: {
+  wordMark: {
     position: "absolute",
     left: "12%",
-    fontSize: 72,
-    fontWeight: "900",
-    letterSpacing: -2
+    shadowColor: "rgba(14, 27, 42, 0.18)",
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 5
   },
   cartBadge: {
     position: "absolute",
@@ -147,24 +145,7 @@ const styles = StyleSheet.create({
     justifyContent: "center"
   },
   finalMark: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 16,
-    borderRadius: 32,
-    borderWidth: 1,
-    paddingHorizontal: 24,
-    paddingVertical: 18
-  },
-  finalIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 20,
     alignItems: "center",
     justifyContent: "center"
-  },
-  finalText: {
-    fontSize: 38,
-    fontWeight: "900",
-    letterSpacing: -1
   }
 });
