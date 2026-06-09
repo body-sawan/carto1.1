@@ -1,15 +1,4 @@
-import type {
-  CartActiveSessionActive,
-  CartActiveSessionResponse,
-  CartActiveSessionWaiting,
-  CartApiCartItem,
-  CartApiShoppingListItem,
-  CartSnapshot,
-  PaymentStatus,
-  ReceiptLine,
-  ShoppingListItem,
-  ShoppingListItemStatus
-} from "@carto/shared";
+import type { CartSnapshot, PaymentStatus, ReceiptLine, ShoppingListItem, ShoppingListItemStatus } from "@carto/shared";
 import { CARTO_API_BASE_URL, CARTO_INTEGRATION_MODE, CARTO_WEB_BASE_URL, CART_CODE, DEVICE_SECRET } from "./config";
 import { findCatalogProductById, getRegisteredCatalogProducts, normalizeRemoteProduct, registerCatalogProducts } from "./cartCatalog";
 
@@ -25,51 +14,207 @@ interface ApiEnvelope<T> {
   error?: ApiErrorShape;
 }
 
-interface CartApiResult<T> {
+export interface CartApiResult<T> {
   data: T;
   error?: string;
   ok: boolean;
 }
 
-interface CartApiActionPayload {
-  cartSessionId?: string | null;
-  productId?: string;
-  quantity?: number;
-  receiptId?: string | null;
-  sessionId?: string | null;
+export interface CartoQrData {
+  expiresAt?: string | null;
+  payload: {
+    cartCode: string;
+    pairingCode: string;
+    type?: string;
+  };
+  qrValue: string;
 }
 
+export interface CartoItemActionPayload {
+  category?: string | null;
+  name?: string;
+  price?: number;
+  productId?: string;
+  quantity?: number;
+}
+
+export interface CartoCheckoutData {
+  alreadyFinished?: boolean;
+  cartCode: string;
+  cartSessionId?: string | null;
+  items?: CartoReceiptItem[];
+  note?: string;
+  paymentStatus?: string | null;
+  receiptId?: string | null;
+  sessionClosed?: boolean;
+  status?: string;
+  subtotal?: number;
+  tax?: number;
+  total?: number;
+}
+
+export interface CartoWaitingSessionData {
+  active?: false;
+  cart?: {
+    cartCode?: string;
+    status?: string;
+  };
+  cartCode: string;
+  cartStatus?: string;
+  status: "waiting";
+}
+
+export interface CartoShoppingListItem {
+  category?: string | null;
+  checked?: boolean;
+  id?: string;
+  isCollected?: boolean;
+  name?: string;
+  price?: number | null;
+  productId?: string;
+  quantity?: number;
+}
+
+export interface CartoShoppingListContainer {
+  id?: string;
+  items?: CartoShoppingListItem[] | null;
+  name?: string;
+}
+
+export interface CartoReceiptItem {
+  category?: string | null;
+  id?: string;
+  name?: string;
+  price?: number | null;
+  productId?: string;
+  quantity?: number;
+  scannedAt?: string | null;
+  total?: number;
+}
+
+export interface CartoActiveSessionData {
+  active?: true;
+  cart?: {
+    cartCode?: string;
+    status?: string;
+  };
+  cartCode: string;
+  cartItems: CartoReceiptItem[];
+  cartSessionId: string;
+  cartStatus?: string;
+  list?: CartoShoppingListContainer | null;
+  paymentStatus?: string | null;
+  receiptId?: string | null;
+  session?: {
+    endedAt?: string | null;
+    id?: string;
+    startedAt?: string | null;
+    status?: string;
+  };
+  sessionId: string;
+  shoppingList?: CartoShoppingListContainer | null;
+  status: "active";
+  total: number;
+}
+
+export type CartoActiveSessionResponse = CartoWaitingSessionData | CartoActiveSessionData;
+
 interface CartoProductRecord {
+  category?: string | null;
+  emoji?: string | null;
   id: string;
   name: string;
-  category?: string | null;
   price?: number | null;
-  emoji?: string | null;
 }
 
 const MOCK_WAIT_MS = 4500;
-const MOCK_ACTIVE_SESSION: CartActiveSessionActive = {
-  status: "active",
+const MOCK_QR_EXPIRES_AT_MS = 5 * 60 * 1000;
+const MOCK_ACTIVE_SESSION: CartoActiveSessionData = {
+  active: true,
   cartCode: "CART-001",
-  sessionId: "MOCK-SESSION-001",
-  cartSessionId: "MOCK-CARTSESSION-001",
-  receiptId: "MOCK-RECEIPT-001",
-  shoppingList: [
-    { productId: "milk", name: "Milk", quantity: 1, checked: false },
-    { productId: "bread", name: "Bread", quantity: 2, checked: false },
-    { productId: "cola", name: "Coca Cola", quantity: 1, checked: false }
-  ],
   cartItems: [],
+  cartSessionId: "MOCK-CARTSESSION-001",
+  cartStatus: "IN_USE",
+  paymentStatus: null,
+  receiptId: "MOCK-RECEIPT-001",
+  sessionId: "MOCK-SESSION-001",
+  shoppingList: {
+    id: "MOCK-LIST-001",
+    name: "Mock list",
+    items: [
+      { productId: "milk", name: "Milk", quantity: 1, checked: false },
+      { productId: "bread", name: "Bread", quantity: 2, checked: false },
+      { productId: "cola", name: "Coca Cola", quantity: 1, checked: false }
+    ]
+  },
+  status: "active",
   total: 0
 };
 
 let mockOnlineStartedAt = 0;
 
-export async function getActiveSession(
+export async function requestCarto<T>(
+  path: string,
+  options: (RequestInit & { auth?: boolean }) = {}
+): Promise<T> {
+  const { auth = true, headers, ...requestInit } = options;
+  const url = buildAbsoluteUrl(path);
+  const requestHeaders = new Headers(headers ?? {});
+
+  if (auth) {
+    if (!DEVICE_SECRET) {
+      throw new Error("Device secret is missing. Set DEVICE_SECRET or EXPO_PUBLIC_DEVICE_SECRET.");
+    }
+    requestHeaders.set("Authorization", `Bearer ${DEVICE_SECRET}`);
+  }
+
+  if (requestInit.body && !requestHeaders.has("Content-Type")) {
+    requestHeaders.set("Content-Type", "application/json");
+  }
+
+  const response = await fetch(url, {
+    ...requestInit,
+    headers: requestHeaders
+  });
+
+  const payload = await parseJsonSafely(response);
+
+  if (!response.ok) {
+    throw new Error(readApiError(payload, response.status));
+  }
+
+  if (payload && typeof payload === "object" && "success" in payload) {
+    const envelope = payload as ApiEnvelope<T>;
+    if (envelope.success === false) {
+      throw new Error(readApiError(envelope, response.status));
+    }
+    if (envelope.success === true) {
+      return envelope.data as T;
+    }
+  }
+
+  return payload as T;
+}
+
+export async function fetchCartoQr(cartCode = CART_CODE): Promise<CartoQrData> {
+  if (CARTO_INTEGRATION_MODE === "mock-online") {
+    return buildMockQrData(cartCode || MOCK_ACTIVE_SESSION.cartCode);
+  }
+
+  if (!cartCode) {
+    throw new Error("Cart code is missing. Set CART_CODE or EXPO_PUBLIC_CART_CODE.");
+  }
+
+  return requestCarto<CartoQrData>(`/api/cart/qrcode?cartCode=${encodeURIComponent(cartCode)}`, {
+    auth: false,
+    method: "GET"
+  });
+}
+
+export async function fetchCartoActiveSession(
   cartCode = CART_CODE,
-  deviceSecret = DEVICE_SECRET,
   signal?: AbortSignal
-): Promise<CartApiResult<CartActiveSessionResponse>> {
+): Promise<CartoActiveSessionResponse> {
   if (CARTO_INTEGRATION_MODE === "mock-online") {
     if (!mockOnlineStartedAt) {
       mockOnlineStartedAt = Date.now();
@@ -77,86 +222,142 @@ export async function getActiveSession(
 
     if ((Date.now() - mockOnlineStartedAt) < MOCK_WAIT_MS) {
       return {
-        ok: true,
-        data: {
-          status: "waiting",
-          cartCode: cartCode || MOCK_ACTIVE_SESSION.cartCode
-        }
+        active: false,
+        cartCode: cartCode || MOCK_ACTIVE_SESSION.cartCode,
+        cartStatus: "READY",
+        status: "waiting"
       };
     }
 
     return {
-      ok: true,
-      data: {
-        ...MOCK_ACTIVE_SESSION,
-        cartCode: cartCode || MOCK_ACTIVE_SESSION.cartCode
-      }
+      ...MOCK_ACTIVE_SESSION,
+      cartCode: cartCode || MOCK_ACTIVE_SESSION.cartCode
     };
   }
 
-  const url = `${CARTO_API_BASE_URL}/api/carts/${cartCode}/active-session`;
+  if (!cartCode) {
+    throw new Error("Cart code is missing. Set CART_CODE or EXPO_PUBLIC_CART_CODE.");
+  }
 
+  const data = await requestCarto<unknown>(`/api/carts/${encodeURIComponent(cartCode)}/active-session`, {
+    method: "GET",
+    signal
+  });
+
+  return normalizeActiveSessionResponse(data, cartCode);
+}
+
+export async function getActiveSession(
+  cartCode = CART_CODE,
+  _deviceSecret = DEVICE_SECRET,
+  signal?: AbortSignal
+): Promise<CartApiResult<CartoActiveSessionResponse>> {
   try {
-    const response = await fetch(url, {
-      method: "GET",
-      headers: buildAuthHeaders(deviceSecret),
-      signal
-    });
-
-    const payload = await response.json().catch(() => null) as CartActiveSessionResponse | ApiEnvelope<CartActiveSessionResponse> | ApiErrorShape | null;
-
-    if (!response.ok) {
-      return {
-        ok: false,
-        error: readApiError(payload, response.status),
-        data: { status: "waiting", cartCode }
-      };
-    }
-
-    const normalized = normalizeActiveSessionPayload(payload, cartCode);
-    return {
-      ok: true,
-      data: normalized
-    };
+    const data = await fetchCartoActiveSession(cartCode, signal);
+    return { ok: true, data };
   } catch (error) {
     return {
       ok: false,
-      error: error instanceof Error ? error.message : "Backend unavailable.",
-      data: { status: "waiting", cartCode }
+      data: {
+        active: false,
+        cartCode: cartCode || "CART-001",
+        status: "waiting"
+      },
+      error: error instanceof Error ? error.message : "Backend unavailable."
     };
   }
 }
 
+export async function addCartoItem(
+  payload: CartoItemActionPayload,
+  previousSnapshot: CartSnapshot | null
+): Promise<CartSnapshot> {
+  const cartCode = ensureCartCode();
+  const activePayload = await requestCarto<unknown>(`/api/carts/${encodeURIComponent(cartCode)}/items`, {
+    body: JSON.stringify({
+      category: payload.category ?? null,
+      name: payload.name,
+      price: safeNumber(payload.price),
+      productId: payload.productId,
+      quantity: safeQuantity(payload.quantity),
+    }),
+    method: "POST"
+  });
+  return mapActiveSessionToSnapshot(normalizeRequiredActiveSessionResponse(activePayload, cartCode), previousSnapshot);
+}
+
+export async function removeCartoItem(
+  payload: CartoItemActionPayload,
+  previousSnapshot: CartSnapshot | null
+): Promise<CartSnapshot> {
+  const cartCode = ensureCartCode();
+  const activePayload = await requestCarto<unknown>(`/api/carts/${encodeURIComponent(cartCode)}/items/remove`, {
+    body: JSON.stringify({
+      name: payload.name,
+      productId: payload.productId,
+      quantity: safeQuantity(payload.quantity)
+    }),
+    method: "POST"
+  });
+  return mapActiveSessionToSnapshot(normalizeRequiredActiveSessionResponse(activePayload, cartCode), previousSnapshot);
+}
+
+export async function checkoutCarto(previousSnapshot: CartSnapshot | null): Promise<CartSnapshot> {
+  const cartCode = ensureCartCode();
+  const data = await requestCarto<CartoCheckoutData>(`/api/carts/${encodeURIComponent(cartCode)}/checkout`, {
+    body: JSON.stringify({}),
+    method: "POST"
+  });
+  return mapCheckoutResponseToSnapshot(data, previousSnapshot);
+}
+
+export async function closeCartoSession(): Promise<CartSnapshot> {
+  const cartCode = ensureCartCode();
+  await requestCarto<CartoCheckoutData>(`/api/carts/${encodeURIComponent(cartCode)}/close-session`, {
+    body: JSON.stringify({}),
+    method: "POST"
+  });
+
+  let qrData: CartoQrData | null = null;
+  try {
+    qrData = await fetchCartoQr(cartCode);
+  } catch {
+    qrData = null;
+  }
+
+  return buildWaitingSnapshot(cartCode, qrData);
+}
+
 export async function addCartItem(
-  cartCode = CART_CODE,
-  deviceSecret = DEVICE_SECRET,
-  payload: CartApiActionPayload
+  _cartCode = CART_CODE,
+  _deviceSecret = DEVICE_SECRET,
+  payload: CartoItemActionPayload
 ) {
-  return postCartAction(`${CARTO_API_BASE_URL}/api/carts/${cartCode}/items`, deviceSecret, payload);
+  return addCartoItem(payload, null);
 }
 
 export async function removeCartItem(
-  cartCode = CART_CODE,
-  deviceSecret = DEVICE_SECRET,
-  payload: CartApiActionPayload
+  _cartCode = CART_CODE,
+  _deviceSecret = DEVICE_SECRET,
+  payload: CartoItemActionPayload
 ) {
-  return postCartAction(`${CARTO_API_BASE_URL}/api/carts/${cartCode}/items/remove`, deviceSecret, payload);
+  return removeCartoItem(payload, null);
 }
 
 export async function checkoutCart(
-  cartCode = CART_CODE,
-  deviceSecret = DEVICE_SECRET,
-  payload: CartApiActionPayload
+  _cartCode = CART_CODE,
+  _deviceSecret = DEVICE_SECRET,
+  _payload?: unknown
 ) {
-  return postCartAction(`${CARTO_API_BASE_URL}/api/carts/${cartCode}/checkout`, deviceSecret, payload);
+  return checkoutCarto(null);
 }
 
 export async function closeCartSession(
-  cartCode = CART_CODE,
-  deviceSecret = DEVICE_SECRET,
-  payload: CartApiActionPayload
+  _cartCode = CART_CODE,
+  _deviceSecret = DEVICE_SECRET,
+  _payload?: unknown
 ) {
-  return postCartAction(`${CARTO_API_BASE_URL}/api/carts/${cartCode}/close-session`, deviceSecret, payload);
+  return closeCartoSession();
 }
 
 export async function fetchCartoCatalog(signal?: AbortSignal) {
@@ -165,7 +366,10 @@ export async function fetchCartoCatalog(signal?: AbortSignal) {
   }
 
   try {
-    const data = await readJson<CartoProductRecord[]>(`${CARTO_API_BASE_URL}/api/products`, DEVICE_SECRET, signal);
+    const data = await requestCarto<CartoProductRecord[]>("/api/products", {
+      method: "GET",
+      signal
+    });
     const products = data.map((product) => normalizeRemoteProduct(product));
     registerCatalogProducts(products);
     return products;
@@ -175,20 +379,29 @@ export async function fetchCartoCatalog(signal?: AbortSignal) {
 }
 
 export function buildOnlinePairingUrl(cartCode = CART_CODE) {
-  return `${CARTO_WEB_BASE_URL}/pair?cartCode=${encodeURIComponent(cartCode || "CART-001")}`;
+  if (!cartCode) return "";
+
+  try {
+    return new URL(`/pair?cartCode=${encodeURIComponent(cartCode)}`, `${CARTO_WEB_BASE_URL}/`).toString();
+  } catch {
+    return `${CARTO_WEB_BASE_URL}/pair?cartCode=${encodeURIComponent(cartCode)}`;
+  }
 }
 
-export function buildWaitingSnapshot(cartCode = CART_CODE): CartSnapshot {
-  const effectiveCartCode = cartCode || "CART-001";
+export function buildWaitingSnapshot(cartCode = CART_CODE, qrData?: CartoQrData | null): CartSnapshot {
+  const effectiveCartCode = qrData?.payload.cartCode || cartCode || "CART-001";
+  const qrPayload = qrData?.qrValue ?? (CARTO_INTEGRATION_MODE === "mock-online" ? buildOnlinePairingUrl(effectiveCartCode) : "");
+
   return {
     cartId: effectiveCartCode,
     sessionId: null,
     state: "WAITING_FOR_LIST",
     pairing: {
       cartId: effectiveCartCode,
-      pairingCode: "",
-      qrPayload: buildOnlinePairingUrl(effectiveCartCode),
-      transport: "backend"
+      pairingCode: qrData?.payload.pairingCode ?? "",
+      qrPayload,
+      transport: "backend",
+      expiresAt: qrData?.expiresAt ?? undefined
     },
     shoppingList: [],
     cartItems: [],
@@ -206,31 +419,27 @@ export function buildWaitingSnapshot(cartCode = CART_CODE): CartSnapshot {
   };
 }
 
-export function mapActiveSessionToSnapshot(data: CartActiveSessionActive, previousSnapshot: CartSnapshot | null): CartSnapshot {
-  const cartItems = mapCartItems(data.cartItems);
-  const shoppingList = mapShoppingListItems(data.shoppingList, cartItems);
-  const subtotal = roundMoney(cartItems.reduce((sum, item) => sum + item.lineTotal, 0));
-  const total = roundMoney(data.total ?? subtotal);
+export function mapActiveSessionToSnapshot(data: CartoActiveSessionData, previousSnapshot: CartSnapshot | null): CartSnapshot {
+  const cartItems = mapReceiptItems(data.cartItems);
+  const shoppingList = mapShoppingListItems(data, cartItems);
+  const subtotal = roundMoney(cartItems.reduce((sum, item) => sum + safeNumber(item.lineTotal), 0));
+  const total = roundMoney(Number.isFinite(data.total) ? data.total : subtotal);
   const tax = roundMoney(Math.max(0, total - subtotal));
-  const paymentStatus = mapPaymentStatus(total, cartItems.length);
+  const paymentStatus = mapPaymentStatus(data.paymentStatus, total, cartItems.length);
   const snapshotState = mapSnapshotState(paymentStatus);
+  const pairing = previousSnapshot?.pairing ?? null;
 
   return {
     cartId: data.cartCode,
     sessionId: data.sessionId,
     state: snapshotState,
-    pairing: previousSnapshot?.pairing
-      ? {
-        ...previousSnapshot.pairing,
-        cartId: data.cartCode,
-        qrPayload: buildOnlinePairingUrl(data.cartCode)
-      }
-      : {
-        cartId: data.cartCode,
-        pairingCode: "",
-        qrPayload: buildOnlinePairingUrl(data.cartCode),
-        transport: "backend"
-      },
+    pairing: {
+      cartId: data.cartCode,
+      pairingCode: pairing?.pairingCode ?? "",
+      qrPayload: pairing?.qrPayload ?? "",
+      transport: "backend",
+      expiresAt: pairing?.expiresAt
+    },
     activeListId: data.cartSessionId,
     shoppingMode: "LIST",
     shoppingList,
@@ -251,153 +460,126 @@ export function mapActiveSessionToSnapshot(data: CartActiveSessionActive, previo
   };
 }
 
+export function mapCheckoutResponseToSnapshot(data: CartoCheckoutData, previousSnapshot: CartSnapshot | null): CartSnapshot {
+  const existingCartItems = previousSnapshot?.cartItems ?? [];
+  const subtotal = roundMoney(safeNumber(data.subtotal, previousSnapshot?.totals.subtotal ?? 0));
+  const tax = roundMoney(safeNumber(data.tax, previousSnapshot?.totals.tax ?? 0));
+  const total = roundMoney(safeNumber(data.total, previousSnapshot?.totals.total ?? subtotal + tax));
+  const paymentStatus = mapPaymentStatus(data.paymentStatus, total, existingCartItems.length);
+
+  return {
+    cartId: data.cartCode || previousSnapshot?.cartId || CART_CODE || "CART-001",
+    sessionId: previousSnapshot?.sessionId ?? null,
+    state: paymentStatus === "PAID" ? "PAID" : mapSnapshotState(paymentStatus),
+    pairing: previousSnapshot?.pairing ?? null,
+    activeListId: data.cartSessionId ?? previousSnapshot?.activeListId,
+    shoppingMode: previousSnapshot?.shoppingMode ?? "LIST",
+    shoppingList: previousSnapshot?.shoppingList ?? [],
+    cartItems: existingCartItems,
+    totals: {
+      subtotal,
+      discount: 0,
+      tax,
+      total
+    },
+    payment: {
+      status: paymentStatus === "NOT_STARTED" ? "PAID" : paymentStatus,
+      amount: total,
+      transactionId: data.receiptId ?? previousSnapshot?.payment.transactionId,
+      updatedAt: new Date().toISOString()
+    },
+    alerts: previousSnapshot?.alerts ?? []
+  };
+}
+
 export function resetMockOnlineSession() {
   mockOnlineStartedAt = 0;
 }
 
-async function postCartAction(url: string, deviceSecret: string, body: CartApiActionPayload) {
-  if (CARTO_INTEGRATION_MODE === "mock-online") {
-    return { ok: true, data: { mocked: true } };
+function normalizeActiveSessionResponse(
+  payload: unknown,
+  cartCode: string,
+  expectedStatus?: "active" | "waiting"
+): CartoActiveSessionResponse {
+  const data = asRecord(payload);
+  if (!data) {
+    throw new Error("Malformed active-session response.");
   }
 
-  try {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        ...buildAuthHeaders(deviceSecret),
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(body)
-    });
+  const status = data.status;
+  if (status === "active") {
+    const cartItems = Array.isArray(data.cartItems) ? data.cartItems as CartoReceiptItem[] : [];
+    const shoppingList = readShoppingListContainer(data);
 
-    const payload = await response.json().catch(() => null) as ApiEnvelope<unknown> | ApiErrorShape | null;
-    if (!response.ok) {
-      return {
-        ok: false,
-        error: readApiError(payload, response.status),
-        data: null
-      };
-    }
-
-    return {
-      ok: true,
-      data: payload
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      error: error instanceof Error ? error.message : "Backend unavailable.",
-      data: null
-    };
-  }
-}
-
-async function readJson<T>(url: string, deviceSecret: string, signal?: AbortSignal) {
-  const response = await fetch(url, {
-    method: "GET",
-    headers: buildAuthHeaders(deviceSecret),
-    signal
-  });
-
-  const payload = await response.json().catch(() => null) as ApiEnvelope<T> | ApiErrorShape | null;
-
-  if (!response.ok) {
-    throw new Error(readApiError(payload, response.status));
-  }
-
-  if (!payload || typeof payload !== "object" || !("success" in payload)) {
-    return payload as T;
-  }
-
-  if (payload.success === false || payload.data === undefined) {
-    throw new Error(readApiError(payload.error, response.status));
-  }
-
-  return payload.data;
-}
-
-function normalizeActiveSessionPayload(
-  payload: CartActiveSessionResponse | ApiEnvelope<CartActiveSessionResponse> | ApiErrorShape | null,
-  cartCode: string
-): CartActiveSessionResponse {
-  if (!payload || typeof payload !== "object") {
-    return { status: "waiting", cartCode };
-  }
-
-  const data = "data" in payload && payload.data ? payload.data : payload;
-  if (!data || typeof data !== "object") {
-    return { status: "waiting", cartCode };
-  }
-
-  if ("status" in data && data.status === "active") {
-    return {
-      status: "active",
+    const normalized: CartoActiveSessionData = {
+      active: true,
+      cart: asMaybeCart(data.cart),
       cartCode: String(data.cartCode ?? cartCode),
-      sessionId: String(data.sessionId ?? ""),
+      cartItems,
       cartSessionId: String(data.cartSessionId ?? ""),
-      receiptId: (data.receiptId as string | null | undefined) ?? null,
-      shoppingList: normalizeShoppingList((data.shoppingList as unknown[]) ?? []),
-      cartItems: normalizeCartItems((data.cartItems as unknown[]) ?? []),
-      total: typeof data.total === "number" ? data.total : 0
+      cartStatus: typeof data.cartStatus === "string" ? data.cartStatus : undefined,
+      list: shoppingList.fromList,
+      paymentStatus: typeof data.paymentStatus === "string" || data.paymentStatus === null ? data.paymentStatus as string | null : null,
+      receiptId: typeof data.receiptId === "string" || data.receiptId === null ? data.receiptId as string | null : null,
+      session: asMaybeSession(data.session),
+      sessionId: String(data.sessionId ?? ""),
+      shoppingList: shoppingList.fromShoppingList,
+      status: "active",
+      total: safeNumber(data.total)
     };
+
+    return normalized;
+  }
+
+  if (expectedStatus === "active") {
+    throw new Error("Active cart session response was not returned.");
   }
 
   return {
-    status: "waiting",
-    cartCode: String(("cartCode" in data ? data.cartCode : cartCode) ?? cartCode)
+    active: false,
+    cart: asMaybeCart(data.cart),
+    cartCode: String(data.cartCode ?? cartCode),
+    cartStatus: typeof data.cartStatus === "string" ? data.cartStatus : undefined,
+    status: "waiting"
   };
 }
 
-function normalizeShoppingList(items: unknown[]): CartApiShoppingListItem[] {
-  return items.map((item, index) => {
-    const normalized = item as Record<string, unknown>;
-    return {
-      productId: String(normalized.productId ?? `item-${index}`),
-      name: String(normalized.name ?? `Item ${index + 1}`),
-      quantity: typeof normalized.quantity === "number" ? normalized.quantity : 1,
-      checked: typeof normalized.checked === "boolean" ? normalized.checked : false
-    };
-  });
+function normalizeRequiredActiveSessionResponse(payload: unknown, cartCode: string) {
+  const normalized = normalizeActiveSessionResponse(payload, cartCode, "active");
+  if (normalized.status !== "active") {
+    throw new Error("Active cart session response was not returned.");
+  }
+  return normalized;
 }
 
-function normalizeCartItems(items: unknown[]): CartApiCartItem[] {
+function mapReceiptItems(items: CartoReceiptItem[]) {
   return items.map((item, index) => {
-    const normalized = item as Record<string, unknown>;
-    const productId = String(normalized.productId ?? `cart-item-${index}`);
+    const productId = String(item.productId ?? item.id ?? item.name ?? `cart-item-${index}`);
     const fallbackProduct = findCatalogProductById(productId);
-    const price = typeof normalized.price === "number" ? normalized.price : (fallbackProduct?.price ?? 0);
-    const quantity = typeof normalized.quantity === "number" ? normalized.quantity : 1;
+    const unitPrice = roundMoney(safeNumber(item.price, fallbackProduct?.price ?? 0));
+    const quantity = safeQuantity(item.quantity);
+    const computedTotal = unitPrice * quantity;
+    const lineTotal = roundMoney(safeNumber(item.total, computedTotal));
 
     return {
+      lineId: `cart-line-${productId}-${index}`,
       productId,
-      name: String(normalized.name ?? fallbackProduct?.name ?? `Cart item ${index + 1}`),
-      price,
+      barcode: fallbackProduct?.barcode ?? `carto-${productId}`,
+      name: item.name ?? fallbackProduct?.name ?? `Cart item ${index + 1}`,
+      unitPrice,
       quantity,
-      total: typeof normalized.total === "number" ? normalized.total : roundMoney(price * quantity)
-    };
-  });
-}
-
-function mapCartItems(items: CartApiCartItem[]) {
-  return items.map((item) => {
-    const fallbackProduct = findCatalogProductById(item.productId);
-    return {
-      lineId: `cart-line-${item.productId}`,
-      productId: item.productId,
-      barcode: fallbackProduct?.barcode ?? `carto-${item.productId}`,
-      name: item.name,
-      unitPrice: roundMoney(item.price),
-      quantity: item.quantity,
-      lineTotal: roundMoney(item.total),
-      category: fallbackProduct?.category,
+      lineTotal: Number.isFinite(lineTotal) ? lineTotal : 0,
+      category: normalizeOptionalString(item.category) ?? fallbackProduct?.category,
       shelfId: fallbackProduct?.shelfId,
       mapNodeId: fallbackProduct?.mapNodeId,
-      addedAt: new Date().toISOString()
+      addedAt: item.scannedAt ?? new Date().toISOString()
     } satisfies ReceiptLine;
   });
 }
 
-function mapShoppingListItems(items: CartApiShoppingListItem[], cartItems: ReceiptLine[]) {
+function mapShoppingListItems(session: CartoActiveSessionData, cartItems: ReceiptLine[]) {
+  const listContainer = session.shoppingList ?? session.list ?? null;
+  const items = Array.isArray(listContainer?.items) ? listContainer.items : [];
   const inCartByProductId = new Map<string, number>();
   const inCartByName = new Map<string, number>();
 
@@ -407,21 +589,24 @@ function mapShoppingListItems(items: CartApiShoppingListItem[], cartItems: Recei
     inCartByName.set(key, (inCartByName.get(key) ?? 0) + cartItem.quantity);
   }
 
-  return items.map((item) => {
-    const fallbackProduct = findCatalogProductById(item.productId);
-    const inCartQuantity = inCartByProductId.get(item.productId)
-      ?? inCartByName.get(normalizeKey(item.name))
+  return items.map((item, index) => {
+    const productId = String(item.productId ?? item.id ?? item.name ?? `list-item-${index}`);
+    const name = item.name ?? `Item ${index + 1}`;
+    const quantity = safeQuantity(item.quantity);
+    const fallbackProduct = findCatalogProductById(productId);
+    const inCartQuantity = inCartByProductId.get(productId)
+      ?? inCartByName.get(normalizeKey(name))
       ?? 0;
 
     return {
-      productId: item.productId,
-      name: item.name,
-      quantity: item.quantity,
-      checked: item.checked,
+      productId,
+      name,
+      quantity,
+      checked: Boolean(item.checked ?? item.isCollected ?? false),
       inCartQuantity,
-      status: deriveShoppingItemStatus(inCartQuantity, item.quantity),
-      price: fallbackProduct?.price,
-      category: fallbackProduct?.category,
+      status: deriveShoppingItemStatus(inCartQuantity, quantity),
+      price: safeMaybeNumber(item.price, fallbackProduct?.price),
+      category: normalizeOptionalString(item.category) ?? fallbackProduct?.category,
       shelfId: fallbackProduct?.shelfId,
       mapNodeId: fallbackProduct?.mapNodeId
     } satisfies ShoppingListItem;
@@ -434,7 +619,11 @@ function deriveShoppingItemStatus(inCartQuantity: number, targetQuantity: number
   return "IN_CART";
 }
 
-function mapPaymentStatus(total: number, itemCount: number): PaymentStatus {
+function mapPaymentStatus(rawStatus: string | null | undefined, total: number, itemCount: number): PaymentStatus {
+  const normalized = rawStatus?.toUpperCase() ?? "";
+  if (normalized.includes("PAID")) return "PAID";
+  if (normalized.includes("FAIL")) return "FAILED";
+  if (normalized.includes("WAIT")) return "WAITING_PAYMENT";
   if (total <= 0 && itemCount <= 0) return "NOT_STARTED";
   return "NOT_STARTED";
 }
@@ -446,31 +635,123 @@ function mapSnapshotState(paymentStatus: PaymentStatus): CartSnapshot["state"] {
   return "SHOPPING";
 }
 
-function buildAuthHeaders(deviceSecret: string) {
+function buildAbsoluteUrl(path: string) {
+  try {
+    return new URL(path, `${CARTO_API_BASE_URL}/`).toString();
+  } catch {
+    throw new Error("Carto API base URL is invalid. Check CARTO_API_BASE_URL.");
+  }
+}
+
+async function parseJsonSafely(response: Response) {
+  const text = await response.text().catch(() => "");
+  if (!text) return null;
+
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function readApiError(payload: unknown, status: number) {
+  const record = asRecord(payload);
+  if (!record) {
+    return `HTTP ${status}`;
+  }
+
+  const errorRecord = asRecord(record.error) ?? record;
+  const message = normalizeOptionalString(errorRecord.message)
+    ?? normalizeOptionalString(errorRecord.error)
+    ?? normalizeOptionalString(errorRecord.code);
+
+  return message ?? `HTTP ${status}`;
+}
+
+function readShoppingListContainer(data: Record<string, unknown>) {
+  const fromShoppingList = asMaybeShoppingList(data.shoppingList);
+  const fromList = asMaybeShoppingList(data.list);
+  return { fromList, fromShoppingList };
+}
+
+function asMaybeShoppingList(value: unknown) {
+  const record = asRecord(value);
+  if (!record) return null;
+
   return {
-    Authorization: `Bearer ${deviceSecret}`
+    id: normalizeOptionalString(record.id) ?? undefined,
+    items: Array.isArray(record.items) ? record.items as CartoShoppingListItem[] : [],
+    name: normalizeOptionalString(record.name) ?? undefined
+  } satisfies CartoShoppingListContainer;
+}
+
+function asMaybeCart(value: unknown) {
+  const record = asRecord(value);
+  if (!record) return undefined;
+
+  return {
+    cartCode: normalizeOptionalString(record.cartCode) ?? undefined,
+    status: normalizeOptionalString(record.status) ?? undefined
   };
+}
+
+function asMaybeSession(value: unknown) {
+  const record = asRecord(value);
+  if (!record) return undefined;
+
+  return {
+    endedAt: normalizeOptionalString(record.endedAt),
+    id: normalizeOptionalString(record.id) ?? undefined,
+    startedAt: normalizeOptionalString(record.startedAt),
+    status: normalizeOptionalString(record.status) ?? undefined
+  };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" ? value as Record<string, unknown> : null;
 }
 
 function normalizeKey(value: string) {
   return value.trim().toLowerCase();
 }
 
-function roundMoney(value: number) {
-  return Math.round(value * 100) / 100;
+function normalizeOptionalString(value: unknown) {
+  return typeof value === "string" && value.length > 0 ? value : null;
 }
 
-function readApiError(payload: ApiEnvelope<unknown> | ApiErrorShape | CartActiveSessionResponse | null | undefined, status: number) {
-  if (!payload || typeof payload !== "object") {
-    return `HTTP ${status}`;
+function safeMaybeNumber(value: unknown, fallback?: number) {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function safeNumber(value: unknown, fallback = 0) {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function safeQuantity(value: unknown) {
+  const quantity = typeof value === "number" && Number.isFinite(value) ? value : 1;
+  return Math.max(0, Math.round(quantity));
+}
+
+function roundMoney(value: number) {
+  return Math.round((Number.isFinite(value) ? value : 0) * 100) / 100;
+}
+
+function ensureCartCode() {
+  if (!CART_CODE) {
+    throw new Error("Cart code is missing. Set CART_CODE or EXPO_PUBLIC_CART_CODE.");
   }
 
-  const errorShape = ("error" in payload && typeof payload.error === "object" && payload.error
-    ? payload.error
-    : payload) as ApiErrorShape;
+  return CART_CODE;
+}
 
-  return errorShape.message
-    ?? errorShape.error
-    ?? errorShape.code
-    ?? `HTTP ${status}`;
+function buildMockQrData(cartCode: string): CartoQrData {
+  return {
+    expiresAt: new Date(Date.now() + MOCK_QR_EXPIRES_AT_MS).toISOString(),
+    payload: {
+      cartCode,
+      pairingCode: "MOCK-PAIR",
+      type: "cart_pairing"
+    },
+    qrValue: buildOnlinePairingUrl(cartCode)
+  };
 }

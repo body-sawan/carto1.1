@@ -1,6 +1,7 @@
 import { Pressable, View, Text, StyleSheet } from "react-native";
 import QRCode from "react-native-qrcode-svg";
 import type { CartSnapshot } from "../store/cartUiStore";
+import { CART_CODE, CART_SCREEN_BACKEND_MODE } from "../realtime/config";
 
 interface QRCodePanelProps {
   connected: boolean;
@@ -10,6 +11,9 @@ interface QRCodePanelProps {
 
 export function QRCodePanel({ connected, snapshot, onStartShopping }: QRCodePanelProps) {
   const pairing = snapshot?.pairing;
+  const isCartoMode = CART_SCREEN_BACKEND_MODE === "carto";
+  const cartCode = CART_CODE || pairing?.cartId || "";
+  const qrValue = pairing?.qrPayload ?? "";
   return (
     <View style={styles.panel}>
       <View style={styles.copy}>
@@ -17,7 +21,9 @@ export function QRCodePanel({ connected, snapshot, onStartShopping }: QRCodePane
         <Text style={styles.subtitle}>Scan the QR to load your shopping list.</Text>
       </View>
       <View style={styles.qrBox}>
-        {pairing ? <QRCode value={pairing.qrPayload} size={236} /> : <Text style={styles.loading}>Starting pairing...</Text>}
+        {qrValue
+          ? <QRCode value={qrValue} size={236} />
+          : <Text style={styles.loading}>{isCartoMode ? (cartCode ? "QR unavailable. Check backend connection." : "Set CART_CODE to generate the online QR.") : "Starting pairing..."}</Text>}
       </View>
       <Text style={styles.orText}>or</Text>
       <Pressable
@@ -37,11 +43,17 @@ export function QRCodePanel({ connected, snapshot, onStartShopping }: QRCodePane
           No list needed
         </Text>
       </Pressable>
+      {pairing?.pairingCode ? (
+        <View style={styles.codeBlock}>
+          <Text style={styles.codeLabel}>Pairing Code</Text>
+          <Text style={styles.code}>{pairing.pairingCode}</Text>
+        </View>
+      ) : null}
       <View style={styles.codeBlock}>
-        <Text style={styles.codeLabel}>Pairing Code</Text>
-        <Text style={styles.code}>{pairing?.pairingCode ?? "------"}</Text>
+        <Text style={styles.codeLabel}>Cart Code</Text>
+        <Text style={styles.code}>{cartCode || "------"}</Text>
       </View>
-      {pairing?.bluetoothDeviceName ? <Text style={styles.meta}>Bluetooth: {pairing.bluetoothDeviceName}</Text> : null}
+      {!isCartoMode && pairing?.bluetoothDeviceName ? <Text style={styles.meta}>Bluetooth: {pairing.bluetoothDeviceName}</Text> : null}
     </View>
   );
 }

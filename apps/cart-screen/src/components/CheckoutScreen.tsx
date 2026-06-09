@@ -54,7 +54,6 @@ export function CheckoutScreen({
   const StatusIcon = getStatusIcon(state);
   const canStartCheckout = connected && state === "SHOPPING" && cartItems.length > 0;
   const showReturn = state !== "PAID" && state !== "WAITING_FOR_LIST" && state !== "SESSION_CLOSED";
-  const readOnlySession = sessionControlMode === "read_only";
 
   return (
     <View style={styles.root}>
@@ -197,17 +196,6 @@ export function CheckoutScreen({
             </View>
           </View>
 
-          {readOnlySession ? (
-            <View style={[styles.readOnlyCard, { backgroundColor: theme.warningSoft, borderColor: theme.warning }]}>
-              <Text style={[styles.readOnlyTitle, { color: theme.warning, fontSize: scaleSize(14, textScale) }]}>
-                Checkout is read-only in backend-paired sessions
-              </Text>
-              <Text style={[styles.readOnlyText, { color: theme.textSecondary, fontSize: scaleSize(12, textScale) }]}>
-                Device checkout and close-session endpoints are not available in the teammate backend yet.
-              </Text>
-            </View>
-          ) : null}
-
           <View style={[styles.placeholderCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <View style={styles.placeholderHeader}>
               <Receipt size={18} color={theme.textPrimary} />
@@ -229,7 +217,7 @@ export function CheckoutScreen({
           <View style={styles.buttonStack}>
             {(state === "SHOPPING" || state === "CHECKOUT_PENDING") ? (
                 <PrimaryButton
-                  disabled={!canStartCheckout || readOnlySession}
+                  disabled={!canStartCheckout}
                   label={strings.confirmCheckout}
                   onPress={onConfirmCheckout}
                   textScale={textScale}
@@ -240,7 +228,7 @@ export function CheckoutScreen({
             {state === "WAITING_PAYMENT" ? (
               <>
                 <PrimaryButton
-                  disabled={!connected || readOnlySession}
+                  disabled={!connected}
                   label={strings.confirmPayment}
                   onPress={onConfirmPayment}
                   textScale={textScale}
@@ -258,7 +246,7 @@ export function CheckoutScreen({
             {state === "PAYMENT_FAILED" ? (
               <>
                 <PrimaryButton
-                  disabled={!connected || readOnlySession}
+                  disabled={!connected}
                   label={strings.retryPayment}
                   onPress={onRetryPayment}
                   textScale={textScale}
@@ -275,7 +263,7 @@ export function CheckoutScreen({
 
             {(state === "PAID" || state === "WAITING_FOR_LIST" || state === "SESSION_CLOSED") ? (
               <PrimaryButton
-                disabled={!connected || readOnlySession}
+                disabled={!connected}
                 label={strings.startNewSession}
                 onPress={onResetSession}
                 textScale={textScale}
@@ -554,19 +542,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: 14,
     gap: 12
-  },
-  readOnlyCard: {
-    borderRadius: 18,
-    borderWidth: 1,
-    padding: 14,
-    gap: 6
-  },
-  readOnlyTitle: {
-    fontWeight: "900"
-  },
-  readOnlyText: {
-    fontWeight: "700",
-    lineHeight: 19
   },
   placeholderHeader: {
     flexDirection: "row",

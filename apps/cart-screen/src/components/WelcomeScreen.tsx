@@ -1,6 +1,7 @@
 import { Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import QRCode from "react-native-qrcode-svg";
 import type { CartBackendStatus, CartSnapshot, UiThemeName } from "../store/cartUiStore";
+import { CART_SCREEN_BACKEND_MODE } from "../realtime/config";
 import type { AppStrings, ThemePalette } from "../ui/appUi";
 import { scaleSize, shadowStyle } from "../ui/appUi";
 import { CartoLogo } from "./CartoLogo";
@@ -34,9 +35,13 @@ export function WelcomeScreen({
   const { width } = useWindowDimensions();
   const compact = width < 920;
   const pairing = snapshot?.pairing;
+  const backendMode = CART_SCREEN_BACKEND_MODE;
+  const isCartoMode = backendMode === "carto";
+  const cartCodeLabel = cartCode || pairing?.cartId || "";
+  const qrValue = pairing?.qrPayload ?? "";
   const themeOptions: UiThemeName[] = ["premium_light", "friendly_supermarket", "carto_blue_green"];
   const pairingStatusLabel = getPairingStatusLabel(backendStatus, strings);
-  const continueDisabled = !connected || backendStatus === "offline";
+  const continueDisabled = !connected;
 
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
@@ -87,12 +92,25 @@ export function WelcomeScreen({
         </Text>
 
         <View style={[styles.qrFrame, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          {pairing ? (
-            <QRCode value={pairing.qrPayload} size={compact ? 210 : 260} />
+          {qrValue ? (
+            <QRCode value={qrValue} size={compact ? 210 : 260} />
           ) : (
-            <Text style={[styles.qrFallback, { color: theme.textMuted, fontSize: scaleSize(16, textScale) }]}>
-              {strings.qrLoading}
-            </Text>
+            isCartoMode ? (
+              <View style={styles.warningBlock}>
+                <Text style={[styles.warningTitle, { color: theme.warning, fontSize: scaleSize(16, textScale) }]}>
+                  {cartCodeLabel ? "QR unavailable" : "Cart code missing"}
+                </Text>
+                <Text style={[styles.qrFallback, { color: theme.textMuted, fontSize: scaleSize(14, textScale) }]}>
+                  {cartCodeLabel
+                    ? "The Mazen backend QR is not available right now. Check the backend connection and try again."
+                    : "Set `CART_CODE` or `EXPO_PUBLIC_CART_CODE` to generate the online pairing QR."}
+                </Text>
+              </View>
+            ) : (
+              <Text style={[styles.qrFallback, { color: theme.textMuted, fontSize: scaleSize(16, textScale) }]}>
+                {strings.qrLoading}
+              </Text>
+            )
           )}
         </View>
 
@@ -112,7 +130,7 @@ export function WelcomeScreen({
             Cart code
           </Text>
           <Text style={[styles.cartCodeValue, { color: theme.textPrimary, fontSize: scaleSize(20, textScale) }]}>
-            {cartCode || pairing?.cartId || "------"}
+            {cartCodeLabel || "------"}
           </Text>
         </View>
 
@@ -304,6 +322,14 @@ const styles = StyleSheet.create({
   },
   qrFallback: {
     fontWeight: "700",
+    textAlign: "center"
+  },
+  warningBlock: {
+    gap: 8,
+    alignItems: "center"
+  },
+  warningTitle: {
+    fontWeight: "900",
     textAlign: "center"
   },
   codeBlock: {

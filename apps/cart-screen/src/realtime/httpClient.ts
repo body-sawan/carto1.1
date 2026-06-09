@@ -1,6 +1,7 @@
 import type { Product } from "@carto/shared";
 import { CART_EDGE_HTTP_URL, CARTO_INTEGRATION_MODE } from "./config";
-import { addCartItem, fetchCartoCatalog, removeCartItem } from "./cartoApi";
+import { addCartoItem, fetchCartoCatalog, removeCartoItem } from "./cartoApi";
+import { findCatalogProductById } from "./cartCatalog";
 import {
   addLocalProduct,
   cancelLocalGuestCheckout,
@@ -8,6 +9,7 @@ import {
   failLocalGuestPayment,
   removeLocalProduct
 } from "./localCartActions";
+import { useCartUiStore } from "../store/cartUiStore";
 
 interface EdgeErrorResponse {
   ok?: boolean;
@@ -71,19 +73,42 @@ async function readJsonResponse<T>(response: Response): Promise<T> {
 
 async function postCartoLocalAction<T>(path: string, body: unknown) {
   const payload = (body && typeof body === "object" ? body : {}) as { barcode?: string; productId?: string };
+  const { sessionControlMode, snapshot, setBackendStatus, setConnected, setSessionControlMode, setSnapshot } = useCartUiStore.getState();
+  const product = payload.productId ? findCatalogProductById(payload.productId) : undefined;
+  const isLocalGuest = sessionControlMode === "local_guest";
 
   if (path === "/dev/scan") {
-    addLocalProduct(payload.productId, payload.barcode);
-    if (CARTO_INTEGRATION_MODE === "online-api" && payload.productId) {
-      void addCartItem(undefined, undefined, { productId: payload.productId, quantity: 1 });
+    if (isLocalGuest) {
+      addLocalProduct(payload.productId, payload.barcode);
+    } else {
+      const nextSnapshot = await addCartoItem({
+        category: product?.category,
+        name: product?.name,
+        price: product?.price,
+        productId: payload.productId,
+        quantity: 1
+      }, snapshot);
+      setConnected(true);
+      setBackendStatus("active");
+      setSessionControlMode("full");
+      setSnapshot(nextSnapshot);
     }
     return { ok: true } as T;
   }
 
   if (path === "/dev/remove") {
-    removeLocalProduct(payload.productId, payload.barcode);
-    if (CARTO_INTEGRATION_MODE === "online-api" && payload.productId) {
-      void removeCartItem(undefined, undefined, { productId: payload.productId, quantity: 1 });
+    if (isLocalGuest) {
+      removeLocalProduct(payload.productId, payload.barcode);
+    } else {
+      const nextSnapshot = await removeCartoItem({
+        name: product?.name,
+        productId: payload.productId,
+        quantity: 1
+      }, snapshot);
+      setConnected(true);
+      setBackendStatus("active");
+      setSessionControlMode("full");
+      setSnapshot(nextSnapshot);
     }
     return { ok: true } as T;
   }

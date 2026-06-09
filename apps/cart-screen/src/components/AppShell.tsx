@@ -36,7 +36,7 @@ export function AppShell({
   theme
 }: AppShellProps) {
   const backendLabel = formatBackendLabel(backendStatus, strings);
-  const closeDisabled = sessionControlMode === "read_only";
+  const closeDisabled = false;
 
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
@@ -79,14 +79,6 @@ export function AppShell({
               theme={theme}
               tone="neutral"
             />
-            {sessionControlMode === "read_only" ? (
-              <StatusPill
-                label="Backend-paired session is read-only on this cart"
-                textScale={textScale}
-                theme={theme}
-                tone="warning"
-              />
-            ) : null}
 
             <Pressable
               accessibilityRole="button"

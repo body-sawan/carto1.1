@@ -22,7 +22,6 @@ export function CartScreen() {
   const runtime = useCartRuntime();
   const backendStatus = useCartUiStore((state) => state.backendStatus);
   const snapshot = useCartUiStore((state) => state.snapshot);
-  const clearSnapshot = useCartUiStore((state) => state.clearSnapshot);
   const connected = useCartUiStore((state) => state.connected);
   const language = useCartUiStore((state) => state.language);
   const sessionControlMode = useCartUiStore((state) => state.sessionControlMode);
@@ -108,14 +107,15 @@ export function CartScreen() {
       setShowCheckoutSuccess(true);
       if (checkoutResetTimerRef.current) clearTimeout(checkoutResetTimerRef.current);
       checkoutResetTimerRef.current = setTimeout(() => {
-        resetToWelcome();
-        if (sessionControlMode !== "read_only") {
+        void (async () => {
           try {
-            runtime.resetSession();
+            await runtime.resetSession();
           } catch {
-            // The success overlay still clears the local guest flow even if an edge reset is unavailable.
+            // The success overlay still clears the flow even if the backend reset is unavailable.
+          } finally {
+            resetTransientUi();
           }
-        }
+        })();
       }, 5000);
     }
 
@@ -141,7 +141,7 @@ export function CartScreen() {
     productFeedbackTimerRef.current = setTimeout(() => setProductFeedback(null), 1700);
   }
 
-  function resetToWelcome() {
+  function resetTransientUi() {
     if (checkoutResetTimerRef.current) {
       clearTimeout(checkoutResetTimerRef.current);
       checkoutResetTimerRef.current = null;
@@ -155,27 +155,21 @@ export function CartScreen() {
     setProductFeedback(null);
     pendingReturnToShoppingRef.current = false;
     previousSnapshotRef.current = null;
-    clearSnapshot();
     setStage("welcome");
   }
 
-  function handleCloseSession() {
-    if (sessionControlMode === "read_only") {
-      showActionError(strings.closeSession, "This backend-paired session can only be closed after teammate device endpoints are added.");
-      return;
-    }
-
-    resetToWelcome();
+  async function handleCloseSession() {
     try {
-      runtime.resetSession();
+      await runtime.resetSession();
+      resetTransientUi();
     } catch (error) {
       showActionError(strings.closeSession, error instanceof Error ? error.message : "Unable to close this session.");
     }
   }
 
-  function handleContinueWithoutList() {
+  async function handleContinueWithoutList() {
     try {
-      runtime.startShopping();
+      await runtime.startShopping();
     } catch (error) {
       showActionError(strings.continueWithoutList, error instanceof Error ? error.message : "Unable to start shopping.");
     }
@@ -188,14 +182,14 @@ export function CartScreen() {
     setStage("shopping");
   }
 
-  function handleReturnToShopping() {
+  async function handleReturnToShopping() {
     if (
       sessionControlMode !== "read_only"
       && (snapshot?.state === "WAITING_PAYMENT" || snapshot?.state === "PAYMENT_FAILED" || snapshot?.state === "CHECKOUT_PENDING")
     ) {
       pendingReturnToShoppingRef.current = true;
       try {
-        runtime.cancelCheckout();
+        await runtime.cancelCheckout();
       } catch (error) {
         showActionError(strings.returnToShopping, error instanceof Error ? error.message : "Unable to return to shopping.");
       }
@@ -245,12 +239,12 @@ export function CartScreen() {
       <CheckoutScreen
         connected={connected}
         language={language}
-        onCancelCheckout={() => runRuntimeAction(runtime.cancelCheckout, strings.cancelCheckout)}
-        onConfirmCheckout={() => runRuntimeAction(runtime.startCheckout, strings.confirmCheckout)}
-        onConfirmPayment={() => runRuntimeAction(runtime.confirmPayment, strings.confirmPayment)}
-        onResetSession={handleCloseSession}
-        onRetryPayment={() => runRuntimeAction(runtime.retryPayment, strings.retryPayment)}
-        onReturnToShopping={handleReturnToShopping}
+        onCancelCheckout={() => void runRuntimeAction(runtime.cancelCheckout, strings.cancelCheckout)}
+        onConfirmCheckout={() => void runRuntimeAction(runtime.startCheckout, strings.confirmCheckout)}
+        onConfirmPayment={() => void runRuntimeAction(runtime.confirmPayment, strings.confirmPayment)}
+        onResetSession={() => void handleCloseSession()}
+        onRetryPayment={() => void runRuntimeAction(runtime.retryPayment, strings.retryPayment)}
+        onReturnToShopping={() => void handleReturnToShopping()}
         sessionControlMode={sessionControlMode}
         snapshot={snapshot}
         strings={strings}
@@ -264,7 +258,7 @@ export function CartScreen() {
         backendStatus={backendStatus}
         connected={connected}
         language={language}
-        onCloseSession={handleCloseSession}
+        onCloseSession={() => void handleCloseSession()}
         sessionControlMode={sessionControlMode}
         snapshot={snapshot}
         strings={strings}
@@ -280,7 +274,7 @@ export function CartScreen() {
         backendStatus={backendStatus}
         cartCode={CART_CODE}
         connected={connected}
-        onContinueWithoutList={handleContinueWithoutList}
+        onContinueWithoutList={() => void handleContinueWithoutList()}
         onThemeChange={setTheme}
         snapshot={snapshot}
         strings={strings}
@@ -299,18 +293,18 @@ export function CartScreen() {
       <AdminAccessButton
         connected={connected}
         snapshot={snapshot}
-        onResetSession={handleCloseSession}
-        onStartShopping={() => runRuntimeAction(runtime.startShopping, strings.startShopping)}
-        onStartCheckout={() => runRuntimeAction(runtime.startCheckout, strings.confirmCheckout)}
-        onRetryPayment={() => runRuntimeAction(runtime.retryPayment, strings.retryPayment)}
-        onCancelCheckout={() => runRuntimeAction(runtime.cancelCheckout, strings.cancelCheckout)}
+        onResetSession={() => void handleCloseSession()}
+        onStartShopping={() => void runRuntimeAction(runtime.startShopping, strings.startShopping)}
+        onStartCheckout={() => void runRuntimeAction(runtime.startCheckout, strings.confirmCheckout)}
+        onRetryPayment={() => void runRuntimeAction(runtime.retryPayment, strings.retryPayment)}
+        onCancelCheckout={() => void runRuntimeAction(runtime.cancelCheckout, strings.cancelCheckout)}
       />
     </SafeAreaView>
   );
 
-  function runRuntimeAction(action: () => void, title: string) {
+  async function runRuntimeAction(action: () => Promise<void>, title: string) {
     try {
-      action();
+      await action();
     } catch (error) {
       showActionError(title, error instanceof Error ? error.message : "This action is not available right now.");
     }
