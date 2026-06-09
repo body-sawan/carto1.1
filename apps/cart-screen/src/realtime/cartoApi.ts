@@ -205,8 +205,7 @@ export async function fetchCartoQr(cartCode = CART_CODE): Promise<CartoQrData> {
     throw new Error("Cart code is missing. Set CART_CODE or EXPO_PUBLIC_CART_CODE.");
   }
 
-  return requestCarto<CartoQrData>(`/api/cart/qrcode?cartCode=${encodeURIComponent(cartCode)}`, {
-    auth: false,
+  return requestCarto<CartoQrData>(`/api/carts/${encodeURIComponent(cartCode)}/qrcode`, {
     method: "GET"
   });
 }

@@ -24,6 +24,7 @@ This uses Mazen's integration backend:
 - the cart app does not call `/api/cart/link`
 - the phone/website calls `/api/cart/link` after scanning the QR
 - the cart app polls the active-session endpoint and maps the backend JSON into the existing snapshot-driven UI
+- the physical cart device uses authenticated device endpoints
 
 ## Mazen API Notes
 
@@ -52,10 +53,11 @@ The cart app always unwraps `data`.
 
 ## Carto Endpoints
 
-QR endpoint used by the cart screen:
+Device QR endpoint used by the cart screen:
 
 ```text
-GET /api/cart/qrcode?cartCode=CART-001
+GET /api/carts/CART-001/qrcode
+Authorization: Bearer DEVICE_SECRET
 ```
 
 QR response shape:
@@ -80,6 +82,12 @@ Active-session endpoint:
 ```text
 GET /api/carts/CART-001/active-session
 Authorization: Bearer DEVICE_SECRET
+```
+
+Phone/WebApp link endpoint:
+
+```text
+POST /api/cart/link
 ```
 
 Write endpoints:
@@ -134,12 +142,20 @@ Legacy compatibility is still supported for older setups using:
 
 In `carto` mode:
 
-1. The screen fetches a backend-generated QR from `/api/cart/qrcode?cartCode=...`
+1. The screen fetches a backend-generated QR from `/api/carts/[cartCode]/qrcode`
 2. The screen shows `data.qrValue`
 3. The phone site scans that QR and later calls `/api/cart/link`
 4. The cart screen polls `/api/carts/[cartCode]/active-session`
 5. Waiting responses keep the QR screen visible
 6. Active responses load the shopping list, cart items, and totals into the current UI
+
+The QR contains pairing information only:
+
+- `cartCode`
+- `pairingCode`
+
+The QR does not contain shopping list data.
+The device secret is never inside the QR.
 
 The active-session mapper is robust to Mazen's current payload shape:
 
@@ -238,8 +254,10 @@ Verify:
 
 Verify:
 
-- QR request hits `GET /api/cart/qrcode?cartCode=CART-001`
+- QR request hits `GET /api/carts/CART-001/qrcode`
+- QR request includes `Authorization: Bearer DEVICE_SECRET`
 - the screen displays the returned `data.qrValue`
+- the cart app does not call `/api/cart/qrcode?cartCode=CART-001`
 - active-session requests include `Authorization: Bearer DEVICE_SECRET`
 - waiting responses keep the QR screen visible
 - active responses load the shopping list and cart items
