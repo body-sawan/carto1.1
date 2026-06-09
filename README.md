@@ -25,6 +25,17 @@ This uses Mazen's integration backend:
 - the phone/website calls `/api/cart/link` after scanning the QR
 - the cart app polls the active-session endpoint and maps the backend JSON into the existing snapshot-driven UI
 - the physical cart device uses authenticated device endpoints
+- `cart-edge` is not the source of truth in this mode
+
+## Carto Backend Integration Mode
+
+In `carto` mode, the mounted cart screen talks only to Mazen's public backend API.
+
+- The physical cart or Raspberry Pi uses authenticated device endpoints
+- The phone or web app uses the separate link endpoint after scanning
+- The cart app never talks directly to Neon or any other database
+- The QR contains pairing data only and never includes the device secret
+- The current map stays static and interactive only; localization and robot-position UI remain disabled
 
 ## Mazen API Notes
 
@@ -53,7 +64,7 @@ The cart app always unwraps `data`.
 
 ## Carto Endpoints
 
-Device QR endpoint used by the cart screen:
+Real-device QR endpoint used by the cart screen:
 
 ```text
 GET /api/carts/CART-001/qrcode
@@ -77,18 +88,70 @@ QR response shape:
 }
 ```
 
-Active-session endpoint:
+The screen displays `data.qrValue` in the QR component and preserves:
+
+- `data.payload.cartCode`
+- `data.payload.pairingCode`
+- `data.expiresAt`
+
+Real-device active-session endpoint:
 
 ```text
 GET /api/carts/CART-001/active-session
 Authorization: Bearer DEVICE_SECRET
 ```
 
-Phone/WebApp link endpoint:
+Typical waiting response:
+
+```json
+{
+  "success": true,
+  "data": {
+    "cartCode": "CART-001",
+    "status": "waiting"
+  }
+}
+```
+
+Typical active response:
+
+```json
+{
+  "success": true,
+  "data": {
+    "cartCode": "CART-001",
+    "sessionId": "SESSION-123",
+    "cartSessionId": "CARTSESSION-123",
+    "status": "active",
+    "shoppingList": {
+      "items": [
+        {
+          "productId": "milk",
+          "name": "Milk",
+          "quantity": 1,
+          "checked": false
+        }
+      ]
+    },
+    "cartItems": [],
+    "total": 0
+  }
+}
+```
+
+Phone/WebApp endpoint after scanning:
 
 ```text
 POST /api/cart/link
 ```
+
+Older/simple endpoint that exists but is not preferred for the real device:
+
+```text
+GET /api/cart/qrcode?cartCode=CART-001
+```
+
+The cart screen must not use that public/simple endpoint in `carto` mode.
 
 Write endpoints:
 
@@ -125,6 +188,14 @@ EXPO_PUBLIC_CARTO_API_BASE_URL=https://mazen-vercel-url.vercel.app
 EXPO_PUBLIC_CARTO_WEB_BASE_URL=https://mazen-vercel-url.vercel.app
 ```
 
+What each carto variable does:
+
+- `EXPO_PUBLIC_CART_SCREEN_BACKEND_MODE=carto` switches the screen into Mazen-backend mode
+- `EXPO_PUBLIC_CART_CODE` identifies the physical cart, such as `CART-001`
+- `EXPO_PUBLIC_DEVICE_SECRET` is the device bearer token used for authenticated cart requests
+- `EXPO_PUBLIC_CARTO_API_BASE_URL` is the Mazen backend base URL used by the device
+- `EXPO_PUBLIC_CARTO_WEB_BASE_URL` is the browser-facing base URL used when building or displaying pairing links
+
 The screen also accepts:
 
 - `CART_SCREEN_BACKEND_MODE`
@@ -146,8 +217,11 @@ In `carto` mode:
 2. The screen shows `data.qrValue`
 3. The phone site scans that QR and later calls `/api/cart/link`
 4. The cart screen polls `/api/carts/[cartCode]/active-session`
-5. Waiting responses keep the QR screen visible
+5. Waiting responses keep the QR or welcome screen visible
 6. Active responses load the shopping list, cart items, and totals into the current UI
+7. Polling continues after the session becomes active, using a slower refresh interval to keep the UI in sync
+8. Temporary poll failures do not wipe an already active cart session from the screen
+9. The UI clears back to a waiting snapshot only when the backend explicitly returns `status: "waiting"` again
 
 The QR contains pairing information only:
 
@@ -256,13 +330,28 @@ Verify:
 
 - QR request hits `GET /api/carts/CART-001/qrcode`
 - QR request includes `Authorization: Bearer DEVICE_SECRET`
+- QR request does not use `GET /api/cart/qrcode?cartCode=CART-001`
 - the screen displays the returned `data.qrValue`
-- the cart app does not call `/api/cart/qrcode?cartCode=CART-001`
 - active-session requests include `Authorization: Bearer DEVICE_SECRET`
 - waiting responses keep the QR screen visible
 - active responses load the shopping list and cart items
+- the screen keeps polling after the session becomes active
+- temporary active-session request failures do not clear an already active shopping session
+- an explicit backend `waiting` response clears stale active data and returns the screen to QR or welcome state
 - add item calls `/api/carts/CART-001/items`
 - remove item calls `/api/carts/CART-001/items/remove`
 - checkout calls `/api/carts/CART-001/checkout`
 - close session calls `/api/carts/CART-001/close-session`
 - cart item totals never become `NaN`
+
+Example curl checks:
+
+```bash
+curl -H "Authorization: Bearer dev-device-secret" \
+  https://mazen-vercel-url.vercel.app/api/carts/CART-001/qrcode
+```
+
+```bash
+curl -H "Authorization: Bearer dev-device-secret" \
+  https://mazen-vercel-url.vercel.app/api/carts/CART-001/active-session
+```
