@@ -37,6 +37,46 @@ In `carto` mode, the mounted cart screen talks only to Mazen's public backend AP
 - The QR contains pairing data only and never includes the device secret
 - The current map stays static and interactive only; localization and robot-position UI remain disabled
 
+## Mazen Vercel Demo
+
+Backend URL:
+
+```text
+https://cartovercel1.vercel.app
+```
+
+Cart code:
+
+```text
+CART-001
+```
+
+Device secret:
+
+```text
+dev-device-secret
+```
+
+Demo carto env example:
+
+```env
+EXPO_PUBLIC_CART_SCREEN_BACKEND_MODE=carto
+EXPO_PUBLIC_CART_CODE=CART-001
+EXPO_PUBLIC_DEVICE_SECRET=dev-device-secret
+EXPO_PUBLIC_CARTO_API_BASE_URL=https://cartovercel1.vercel.app
+EXPO_PUBLIC_CARTO_WEB_BASE_URL=https://cartovercel1.vercel.app
+```
+
+Notes:
+
+- Do not use `/auth/signin` as `CARTO_API_BASE_URL` or `CARTO_WEB_BASE_URL`
+- The phone can open `/auth/signin` manually, but the cart app base URL must stay the root domain only
+- The cart app must not call `/api/cart/link`
+- The cart app must not ask for `DATABASE_URL` or connect directly to Neon/PostgreSQL
+- Demo reset exists at `POST /api/carts/CART-001/reset` for admin recovery only, not for normal cart flow
+- Optional device readiness debug page:
+  `https://cartovercel1.vercel.app/api/demo/device-readiness?cartCode=CART-001`
+
 ## Mazen API Notes
 
 All successful Mazen responses are wrapped like this:
@@ -107,7 +147,9 @@ Typical waiting response:
 {
   "success": true,
   "data": {
+    "active": false,
     "cartCode": "CART-001",
+    "cartStatus": "AVAILABLE",
     "status": "waiting"
   }
 }
@@ -119,22 +161,34 @@ Typical active response:
 {
   "success": true,
   "data": {
+    "active": true,
     "cartCode": "CART-001",
+    "cartStatus": "IN_USE",
     "sessionId": "SESSION-123",
     "cartSessionId": "CARTSESSION-123",
+    "receiptId": "RCPT-123",
     "status": "active",
     "shoppingList": {
+      "id": "LIST-123",
+      "name": "Weekly Groceries",
       "items": [
         {
-          "productId": "milk",
+          "id": "item_1",
           "name": "Milk",
           "quantity": 1,
+          "price": 0,
+          "category": "Dairy & Eggs",
           "checked": false
         }
       ]
     },
     "cartItems": [],
-    "total": 0
+    "total": 0,
+    "receipt": {
+      "id": "RCPT-123",
+      "total": 0,
+      "items": []
+    }
   }
 }
 ```
@@ -153,6 +207,15 @@ GET /api/cart/qrcode?cartCode=CART-001
 
 The cart screen must not use that public/simple endpoint in `carto` mode.
 
+Optional debug readiness endpoint:
+
+```text
+GET /api/demo/device-readiness?cartCode=CART-001
+```
+
+This route is only for debugging and must not be required by the app.
+It reports backend status, database status, cart readiness, active-session presence, endpoint paths, and warnings without exposing the device secret.
+
 Write endpoints:
 
 ```text
@@ -160,6 +223,7 @@ POST /api/carts/CART-001/items
 POST /api/carts/CART-001/items/remove
 POST /api/carts/CART-001/checkout
 POST /api/carts/CART-001/close-session
+POST /api/carts/CART-001/reset
 ```
 
 All authenticated carto requests use:
@@ -184,8 +248,8 @@ Carto mode with Mazen backend:
 EXPO_PUBLIC_CART_SCREEN_BACKEND_MODE=carto
 EXPO_PUBLIC_CART_CODE=CART-001
 EXPO_PUBLIC_DEVICE_SECRET=dev-device-secret
-EXPO_PUBLIC_CARTO_API_BASE_URL=https://mazen-vercel-url.vercel.app
-EXPO_PUBLIC_CARTO_WEB_BASE_URL=https://mazen-vercel-url.vercel.app
+EXPO_PUBLIC_CARTO_API_BASE_URL=https://cartovercel1.vercel.app
+EXPO_PUBLIC_CARTO_WEB_BASE_URL=https://cartovercel1.vercel.app
 ```
 
 What each carto variable does:
@@ -195,6 +259,7 @@ What each carto variable does:
 - `EXPO_PUBLIC_DEVICE_SECRET` is the device bearer token used for authenticated cart requests
 - `EXPO_PUBLIC_CARTO_API_BASE_URL` is the Mazen backend base URL used by the device
 - `EXPO_PUBLIC_CARTO_WEB_BASE_URL` is the browser-facing base URL used when building or displaying pairing links
+- Keep both base URLs at `https://cartovercel1.vercel.app`, not `/auth/signin`
 
 The screen also accepts:
 
@@ -230,6 +295,15 @@ The QR contains pairing information only:
 
 The QR does not contain shopping list data.
 The device secret is never inside the QR.
+
+Security rules:
+
+- Do not ask for `DATABASE_URL`
+- Do not connect the cart app directly to Neon/PostgreSQL
+- Do not put the device secret in the QR
+- Do not put shopping list data in the QR
+- Do not call `/api/cart/link` from the cart app
+- Use `Authorization: Bearer DEVICE_SECRET` for device endpoints only
 
 The active-session mapper is robust to Mazen's current payload shape:
 
@@ -315,7 +389,7 @@ EXPO_PUBLIC_CART_SCREEN_BACKEND_MODE=carto
 EXPO_PUBLIC_CART_CODE=CART-001
 EXPO_PUBLIC_DEVICE_SECRET=dev-device-secret
 EXPO_PUBLIC_CARTO_API_BASE_URL=https://invalid.example
-EXPO_PUBLIC_CARTO_WEB_BASE_URL=https://mazen-vercel-url.vercel.app
+EXPO_PUBLIC_CARTO_WEB_BASE_URL=https://cartovercel1.vercel.app
 ```
 
 Verify:
@@ -342,16 +416,57 @@ Verify:
 - remove item calls `/api/carts/CART-001/items/remove`
 - checkout calls `/api/carts/CART-001/checkout`
 - close session calls `/api/carts/CART-001/close-session`
+- the cart app does not call `/api/cart/link`
+- Close Session shows the confirmation modal before sending `/api/carts/CART-001/close-session`
 - cart item totals never become `NaN`
+- if the cart gets stuck for demo purposes, `POST /api/carts/CART-001/reset` can be used manually for admin recovery
 
 Example curl checks:
 
 ```bash
 curl -H "Authorization: Bearer dev-device-secret" \
-  https://mazen-vercel-url.vercel.app/api/carts/CART-001/qrcode
+  "https://cartovercel1.vercel.app/api/carts/CART-001/qrcode"
 ```
 
 ```bash
 curl -H "Authorization: Bearer dev-device-secret" \
-  https://mazen-vercel-url.vercel.app/api/carts/CART-001/active-session
+  "https://cartovercel1.vercel.app/api/carts/CART-001/active-session"
 ```
+
+```bash
+curl -X POST "https://cartovercel1.vercel.app/api/carts/CART-001/items" \
+  -H "Authorization: Bearer dev-device-secret" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Coca Cola","price":35,"quantity":1,"category":"Drinks"}'
+```
+
+```bash
+curl -X POST "https://cartovercel1.vercel.app/api/carts/CART-001/items/remove" \
+  -H "Authorization: Bearer dev-device-secret" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Coca Cola","quantity":1}'
+```
+
+```bash
+curl -X POST "https://cartovercel1.vercel.app/api/carts/CART-001/checkout" \
+  -H "Authorization: Bearer dev-device-secret"
+```
+
+```bash
+curl -X POST "https://cartovercel1.vercel.app/api/carts/CART-001/close-session" \
+  -H "Authorization: Bearer dev-device-secret"
+```
+
+```bash
+curl "https://cartovercel1.vercel.app/api/demo/device-readiness?cartCode=CART-001"
+```
+
+## CORS Note
+
+If Expo Web or another browser client blocks carto requests with CORS, Mazen's backend must allow the browser origin with:
+
+```text
+CART_DEVICE_ALLOWED_ORIGINS=[http://localhost:8081,http://localhost:19006,https://cartovercel1.vercel.app]
+```
+
+Native apps and Raspberry Pi device clients usually do not need browser CORS.
