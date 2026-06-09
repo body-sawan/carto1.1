@@ -1,11 +1,12 @@
 import type { CartSnapshot } from "@carto/shared";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useCartUiStore } from "../store/cartUiStore";
 import { CART_CODE } from "./config";
 import { buildWaitingSnapshot, fetchCartoQr, getActiveSession, mapActiveSessionToSnapshot } from "./cartoApi";
 
-const WAITING_POLL_INTERVAL_MS = 2500;
+const WAITING_POLL_INTERVAL_MS = 2000;
 const ACTIVE_POLL_INTERVAL_MS = 5000;
+const ERROR_RETRY_INTERVAL_MS = 5000;
 
 export function useCartoActiveSession(enabled: boolean) {
   const sessionControlMode = useCartUiStore((state) => state.sessionControlMode);
@@ -13,6 +14,9 @@ export function useCartoActiveSession(enabled: boolean) {
   const setConnected = useCartUiStore((state) => state.setConnected);
   const setSessionControlMode = useCartUiStore((state) => state.setSessionControlMode);
   const setSnapshot = useCartUiStore((state) => state.setSnapshot);
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inFlightRef = useRef(false);
+  const activeRequestControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     if (!enabled) {
@@ -28,45 +32,73 @@ export function useCartoActiveSession(enabled: boolean) {
     }
 
     let mounted = true;
-    let pollTimer: ReturnType<typeof setTimeout> | null = null;
-    let activeRequestController: AbortController | null = null;
+
+    function clearPollTimer() {
+      if (pollTimerRef.current) {
+        clearTimeout(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
+    }
+
+    function scheduleNextPoll(delay: number) {
+      clearPollTimer();
+      if (!mounted) {
+        return;
+      }
+
+      pollTimerRef.current = setTimeout(() => {
+        void poll();
+      }, delay);
+    }
 
     void ensureWaitingSnapshot(currentSnapshot);
 
     async function poll() {
-      const controller = new AbortController();
-      activeRequestController = controller;
-      const result = await getActiveSession(undefined, undefined, controller.signal);
-      if (!mounted) return;
-      activeRequestController = null;
-
-      const latestSnapshot = useCartUiStore.getState().snapshot;
-      const hasActiveSession = isSessionActive(latestSnapshot);
-      let nextPollDelay = hasActiveSession ? ACTIVE_POLL_INTERVAL_MS : WAITING_POLL_INTERVAL_MS;
-
-      if (!result.ok) {
-        setConnected(true);
-        setBackendStatus("offline");
-        setSessionControlMode("full");
-        if (!hasActiveSession) {
-          await ensureWaitingSnapshot(latestSnapshot, result.data.cartCode);
-        }
-      } else if (result.data.status === "waiting") {
-        setConnected(true);
-        setBackendStatus("waiting");
-        setSessionControlMode("full");
-        await ensureWaitingSnapshot(latestSnapshot, result.data.cartCode, hasActiveSession);
-        nextPollDelay = WAITING_POLL_INTERVAL_MS;
-      } else {
-        setConnected(true);
-        setBackendStatus("active");
-        setSessionControlMode("full");
-        setSnapshot(mapActiveSessionToSnapshot(result.data, latestSnapshot));
-        nextPollDelay = ACTIVE_POLL_INTERVAL_MS;
+      if (!mounted || inFlightRef.current) {
+        return;
       }
 
-      if (mounted) {
-        pollTimer = setTimeout(poll, nextPollDelay);
+      inFlightRef.current = true;
+      const controller = new AbortController();
+      activeRequestControllerRef.current = controller;
+      let nextPollDelay = ERROR_RETRY_INTERVAL_MS;
+
+      try {
+        const result = await getActiveSession(undefined, undefined, controller.signal);
+        if (!mounted) {
+          return;
+        }
+
+        const latestSnapshot = useCartUiStore.getState().snapshot;
+        const hasActiveSession = isSessionActive(latestSnapshot);
+
+        if (!result.ok) {
+          setConnected(true);
+          setBackendStatus("offline");
+          setSessionControlMode("full");
+          if (!hasActiveSession) {
+            await ensureWaitingSnapshot(latestSnapshot, result.data.cartCode);
+          }
+          nextPollDelay = ERROR_RETRY_INTERVAL_MS;
+        } else if (result.data.status === "waiting") {
+          setConnected(true);
+          setBackendStatus("waiting");
+          setSessionControlMode("full");
+          await ensureWaitingSnapshot(latestSnapshot, result.data.cartCode, hasActiveSession);
+          nextPollDelay = WAITING_POLL_INTERVAL_MS;
+        } else {
+          setConnected(true);
+          setBackendStatus("active");
+          setSessionControlMode("full");
+          setSnapshot(mapActiveSessionToSnapshot(result.data, latestSnapshot));
+          nextPollDelay = ACTIVE_POLL_INTERVAL_MS;
+        }
+      } finally {
+        activeRequestControllerRef.current = null;
+        inFlightRef.current = false;
+        if (mounted) {
+          scheduleNextPoll(nextPollDelay);
+        }
       }
     }
 
@@ -74,8 +106,10 @@ export function useCartoActiveSession(enabled: boolean) {
 
     return () => {
       mounted = false;
-      activeRequestController?.abort();
-      if (pollTimer) clearTimeout(pollTimer);
+      activeRequestControllerRef.current?.abort();
+      activeRequestControllerRef.current = null;
+      inFlightRef.current = false;
+      clearPollTimer();
     };
   }, [enabled, sessionControlMode, setBackendStatus, setConnected, setSessionControlMode, setSnapshot]);
 
