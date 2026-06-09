@@ -6,6 +6,7 @@ import { AppShell } from "../components/AppShell";
 import { BrandTransitionScreen } from "../components/BrandTransitionScreen";
 import { CheckoutScreen } from "../components/CheckoutScreen";
 import { CheckoutSuccessOverlay } from "../components/CheckoutSuccessOverlay";
+import { CloseSessionConfirmModal } from "../components/CloseSessionConfirmModal";
 import { HomeScreen } from "../components/HomeScreen";
 import { ProductFeedbackOverlay, type ProductFeedback } from "../components/ProductFeedbackOverlay";
 import { WelcomeScreen } from "../components/WelcomeScreen";
@@ -33,6 +34,9 @@ export function CartScreen() {
   const textScale = getTextScale(textSize);
 
   const [stage, setStage] = useState<AppFlowStage>("welcome");
+  const [isCloseConfirmOpen, setIsCloseConfirmOpen] = useState(false);
+  const [isClosingSession, setIsClosingSession] = useState(false);
+  const [closeSessionError, setCloseSessionError] = useState<string | null>(null);
   const [productFeedback, setProductFeedback] = useState<ProductFeedback | null>(null);
   const [showCheckoutSuccess, setShowCheckoutSuccess] = useState(false);
   const previousSnapshotRef = useRef<CartSnapshot | null>(null);
@@ -153,18 +157,51 @@ export function CartScreen() {
 
     setShowCheckoutSuccess(false);
     setProductFeedback(null);
+    setCloseSessionError(null);
+    setIsCloseConfirmOpen(false);
+    setIsClosingSession(false);
     pendingReturnToShoppingRef.current = false;
     previousSnapshotRef.current = null;
     setStage("welcome");
   }
 
-  async function handleCloseSession() {
+  function openCloseSessionConfirm() {
+    setCloseSessionError(null);
+    setIsCloseConfirmOpen(true);
+  }
+
+  function handleCancelCloseSession() {
+    if (isClosingSession) return;
+    setCloseSessionError(null);
+    setIsCloseConfirmOpen(false);
+  }
+
+  async function executeCloseSession(options?: { useModalState?: boolean }) {
+    const useModalState = options?.useModalState ?? false;
+    if (useModalState && isClosingSession) return false;
+
+    if (useModalState) {
+      setCloseSessionError(null);
+      setIsClosingSession(true);
+    }
+
     try {
       await runtime.resetSession();
       resetTransientUi();
-    } catch (error) {
-      showActionError(strings.closeSession, error instanceof Error ? error.message : "Unable to close this session.");
+      return true;
+    } catch {
+      if (useModalState) {
+        setCloseSessionError("Could not close session. Please try again.");
+        setIsClosingSession(false);
+      } else {
+        showActionError(strings.closeSession, "Could not close session. Please try again.");
+      }
+      return false;
     }
+  }
+
+  async function handleConfirmCloseSession() {
+    await executeCloseSession({ useModalState: true });
   }
 
   async function handleContinueWithoutList() {
@@ -242,7 +279,7 @@ export function CartScreen() {
         onCancelCheckout={() => void runRuntimeAction(runtime.cancelCheckout, strings.cancelCheckout)}
         onConfirmCheckout={() => void runRuntimeAction(runtime.startCheckout, strings.confirmCheckout)}
         onConfirmPayment={() => void runRuntimeAction(runtime.confirmPayment, strings.confirmPayment)}
-        onResetSession={() => void handleCloseSession()}
+        onResetSession={() => void executeCloseSession()}
         onRetryPayment={() => void runRuntimeAction(runtime.retryPayment, strings.retryPayment)}
         onReturnToShopping={() => void handleReturnToShopping()}
         sessionControlMode={sessionControlMode}
@@ -258,7 +295,7 @@ export function CartScreen() {
         backendStatus={backendStatus}
         connected={connected}
         language={language}
-        onCloseSession={() => void handleCloseSession()}
+        onCloseSession={openCloseSessionConfirm}
         sessionControlMode={sessionControlMode}
         snapshot={snapshot}
         strings={strings}
@@ -288,12 +325,21 @@ export function CartScreen() {
   return (
     <SafeAreaView style={styles.root}>
       {content}
+      <CloseSessionConfirmModal
+        errorMessage={closeSessionError}
+        isClosing={isClosingSession}
+        onCancel={handleCancelCloseSession}
+        onConfirm={() => void handleConfirmCloseSession()}
+        textScale={textScale}
+        theme={theme}
+        visible={isCloseConfirmOpen}
+      />
       <ProductFeedbackOverlay feedback={productFeedback} textScale={textScale} theme={theme} />
       <CheckoutSuccessOverlay strings={strings} textScale={textScale} theme={theme} visible={showCheckoutSuccess} />
       <AdminAccessButton
         connected={connected}
         snapshot={snapshot}
-        onResetSession={() => void handleCloseSession()}
+        onResetSession={() => void executeCloseSession()}
         onStartShopping={() => void runRuntimeAction(runtime.startShopping, strings.startShopping)}
         onStartCheckout={() => void runRuntimeAction(runtime.startCheckout, strings.confirmCheckout)}
         onRetryPayment={() => void runRuntimeAction(runtime.retryPayment, strings.retryPayment)}
