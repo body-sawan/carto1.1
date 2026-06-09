@@ -1,6 +1,5 @@
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
-  ActivityIndicator,
   Image,
   Platform,
   Pressable,
@@ -44,6 +43,7 @@ const MAX_ZOOM = 4;
 const ZOOM_STEP = 0.25;
 const DRAG_THRESHOLD = 3;
 const FALLBACK_VIEWPORT_HEIGHT = 520;
+const FALLBACK_MAP_SIZE: Size = { width: 1000, height: 700 };
 const MARKERS: MarkerDefinition[] = [
   { id: "entrance", x: 0.26, y: 0.86, color: "accent" },
   { id: "bakery", x: 0.3, y: 0.62, color: "warning" },
@@ -55,11 +55,26 @@ const MARKERS: MarkerDefinition[] = [
 ];
 
 export function StaticMapViewer({ language, strings, textScale, theme }: StaticMapViewerProps) {
-  const resolvedMapSource = useMemo(
-    () => Image.resolveAssetSource(require("../../assets/store-map-friendly.png")),
-    []
-  );
+  const mapImageSource = useMemo(() => {
+    try {
+      return require("../../assets/store-map-friendly.png");
+    } catch {
+      return null;
+    }
+  }, []);
+  const resolvedMapSource = useMemo(() => {
+    if (!mapImageSource || typeof Image.resolveAssetSource !== "function") {
+      return null;
+    }
+
+    try {
+      return Image.resolveAssetSource(mapImageSource);
+    } catch {
+      return null;
+    }
+  }, [mapImageSource]);
   const [containerSize, setContainerSize] = useState<Size>({ width: 0, height: 0 });
+  const [didImageLoadFail, setDidImageLoadFail] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState<PanOffset>({ x: 0, y: 0 });
   const dragState = useRef<{
@@ -69,27 +84,29 @@ export function StaticMapViewer({ language, strings, textScale, theme }: StaticM
     startPan: PanOffset;
   } | null>(null);
 
-  const mapSize = resolvedMapSource.width && resolvedMapSource.height
-    ? { width: resolvedMapSource.width, height: resolvedMapSource.height }
-    : null;
+  useEffect(() => {
+    setDidImageLoadFail(false);
+  }, [mapImageSource]);
+
+  const mapSize = {
+    width: resolvedMapSource?.width ?? FALLBACK_MAP_SIZE.width,
+    height: resolvedMapSource?.height ?? FALLBACK_MAP_SIZE.height
+  };
+  const shouldShowMapPlaceholder = !mapImageSource || didImageLoadFail;
 
   const viewportSize = {
     width: containerSize.width > 0 ? containerSize.width : 820,
     height: containerSize.height > 0 ? containerSize.height : FALLBACK_VIEWPORT_HEIGHT
   };
 
-  const fitScale = !mapSize
-    ? 1
-    : Math.min(viewportSize.width / mapSize.width, viewportSize.height / mapSize.height);
+  const fitScale = Math.min(viewportSize.width / mapSize.width, viewportSize.height / mapSize.height);
 
-  const renderedMap = !mapSize
-    ? null
-    : {
-      width: mapSize.width * fitScale * zoom,
-      height: mapSize.height * fitScale * zoom,
-      left: ((viewportSize.width - (mapSize.width * fitScale * zoom)) / 2) + pan.x,
-      top: ((viewportSize.height - (mapSize.height * fitScale * zoom)) / 2) + pan.y
-    };
+  const renderedMap = {
+    width: mapSize.width * fitScale * zoom,
+    height: mapSize.height * fitScale * zoom,
+    left: ((viewportSize.width - (mapSize.width * fitScale * zoom)) / 2) + pan.x,
+    top: ((viewportSize.height - (mapSize.height * fitScale * zoom)) / 2) + pan.y
+  };
 
   function handleLayout(event: LayoutChangeEvent) {
     const nextWidth = Math.round(event.nativeEvent.layout.width);
@@ -213,15 +230,15 @@ export function StaticMapViewer({ language, strings, textScale, theme }: StaticM
           }
         ]}
         onLayout={handleLayout}
-        onMoveShouldSetResponder={() => Boolean(renderedMap)}
+        onMoveShouldSetResponder={() => !shouldShowMapPlaceholder}
         onResponderGrant={handleResponderGrant}
         onResponderMove={handleResponderMove}
         onResponderRelease={handleResponderEnd}
         onResponderTerminate={handleResponderEnd}
-        onStartShouldSetResponder={() => Boolean(renderedMap)}
+        onStartShouldSetResponder={() => !shouldShowMapPlaceholder}
         {...(Platform.OS === "web" ? { onWheel: handleWheel } : {})}
       >
-        {!mapSize ? (
+        {shouldShowMapPlaceholder ? (
           <View style={[styles.stateCard, { backgroundColor: theme.errorSoft }]}>
             <Text style={[styles.errorTitle, { color: theme.error, fontSize: scaleSize(18, textScale) }]}>
               {language === "ar" ? "\u0627\u0644\u062e\u0631\u064a\u0637\u0629 \u063a\u064a\u0631 \u0645\u062a\u0627\u062d\u0629" : "Map unavailable"}
@@ -231,8 +248,13 @@ export function StaticMapViewer({ language, strings, textScale, theme }: StaticM
                 ? "\u0644\u0645 \u064a\u062a\u0645 \u062a\u062d\u0645\u064a\u0644 \u0635\u0648\u0631\u0629 \u0627\u0644\u062e\u0631\u064a\u0637\u0629."
                 : "The bundled store map image could not be loaded."}
             </Text>
+            <Text style={[styles.stateText, { color: theme.textMuted, fontSize: scaleSize(12, textScale) }]}>
+              {language === "ar"
+                ? "\u064a\u0645\u0643\u0646\u0643 \u0625\u0643\u0645\u0627\u0644 \u0627\u0644\u062a\u0633\u0648\u0642 \u0628\u064a\u0646\u0645\u0627 \u064a\u0638\u0647\u0631 \u0628\u062f\u064a\u0644 \u0627\u0644\u062e\u0631\u064a\u0637\u0629."
+                : "You can keep shopping while the cart shows this fallback view."}
+            </Text>
           </View>
-        ) : renderedMap ? (
+        ) : (
           <View style={styles.mapCanvas}>
             <View
               pointerEvents="none"
@@ -264,8 +286,9 @@ export function StaticMapViewer({ language, strings, textScale, theme }: StaticM
               ]}
             />
             <Image
+              onError={() => setDidImageLoadFail(true)}
               resizeMode="cover"
-              source={require("../../assets/store-map-friendly.png")}
+              source={mapImageSource}
               style={[
                 styles.mapImage,
                 {
@@ -313,7 +336,7 @@ export function StaticMapViewer({ language, strings, textScale, theme }: StaticM
               );
             })}
           </View>
-        ) : null}
+        )}
       </View>
 
       <Text style={[styles.legendTitle, { color: theme.textMuted, fontSize: scaleSize(11, textScale) }]}>

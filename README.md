@@ -1,110 +1,180 @@
 # Carto Smart Shopping Cart
 
-Carto is a tablet-first smart shopping cart experience built as a monorepo with:
+Carto is a tablet-first smart shopping cart monorepo with:
 
-- `apps/cart-edge`: the local backend and session engine
-- `apps/cart-screen`: the mounted tablet web UI
+- `apps/cart-edge`: the existing local backend and WebSocket session engine
+- `apps/cart-screen`: the mounted cart screen UI
 - `packages/shared`: shared TypeScript types and protocol models
 
-The cart tablet now uses a static interactive indoor map only.
+The cart UI is now prepared for three integration modes:
 
-Localization and live positioning were removed because the previous accuracy was not reliable enough for a dependable shopper experience. The map is now only for visual browsing, store layout viewing, and section awareness.
+- `local-edge`: current local `cart-edge` WebSocket/dev flow
+- `mock-online`: future online flow simulated locally for UI testing
+- `online-api`: future teammate backend flow using HTTP polling and adapters
 
-## What The App Does
+## Current Shopper Experience
 
-- Shows a QR-based welcome screen for pairing a shopping list
-- Lets shoppers continue without a list
-- Plays a Carto brand transition before the main shopping dashboard
-- Displays a 3-column tablet dashboard:
-  - shopping list
-  - static interactive map
-  - cart items
-- Keeps the rear-camera scanning workflow
-- Shows smart receipt and payment confirmation flow
-- Supports three UI themes:
-  - `Carto Blue Green`
-  - `Premium Light`
-  - `Friendly Supermarket`
+- QR-based welcome screen
+- Continue without list
+- Brand transition into the shopping dashboard
+- Three-column dashboard:
+  - left: shopping list
+  - center: static interactive map
+  - right: cart items and compact checkout summary
+- Rear-camera/manual product flow
+- Smart receipt and success flow
 
-## What Was Removed
+## Static Map Only
 
-The tablet UI and map no longer depend on:
+The cart screen now uses a bundled static map image from:
 
+- `apps/cart-screen/assets/store-map-friendly.png`
+
+Supported map behavior:
+
+- pan
+- zoom in
+- zoom out
+- reset
+
+Removed or disabled behavior:
+
+- current location marker
+- robot marker
+- user/cart marker
+- yaw-based rotation
+- live localization
 - AMCL
 - SLAM
 - RF2O
-- LiDAR
-- ROS map topics
-- `/map`
+- LiDAR tracking
+- ROS subscriptions and pose displays
 - `/amcl_pose`
 - `/odom`
 - `/tf`
 - `/scan`
-- live pose updates
-- map to odom to base_link transforms
-- current position marker
-- robot marker
-- "you are here"
-- pose displays such as `x`, `y`, `theta`
-- localization status
-- localization accuracy circles
-- route drawing from current location
 
-## Static Map
+Legacy localization references may still exist in older docs or backend comments, but they are not part of the current cart UI flow.
 
-The indoor map is loaded from:
+## Integration Modes
 
-- `apps/cart-edge/public/maps/store-map.png`
+### `local-edge`
 
-The tablet map supports:
+Uses the current local `cart-edge` backend:
 
-- drag and pan
-- zoom in
-- zoom out
-- reset view
-- responsive tablet layout
+- WebSocket snapshots
+- local pairing / session lifecycle
+- local dev scan/remove/checkout endpoints
 
-The map is static and interactive only. It does not depend on ROS or backend localization.
+This is the safest default mode and keeps the current local stack working.
 
-## Session Flow
+### `mock-online`
 
-The main shopper flow is:
+Prepares the future teammate backend flow without requiring any backend deployment:
 
-1. QR / welcome screen
-2. Optional "Continue without list"
-3. Carto brand transition
-4. Main shopping dashboard
-5. Scan / cart / map / settings as needed
-6. Smart receipt / checkout screen
-7. Payment success feedback
-8. Automatic return to the QR screen with session reset
+- QR value points to `${CARTO_WEB_BASE_URL}/pair?cartCode=${CART_CODE}`
+- the screen polls a mock active-session adapter
+- it waits briefly, then activates a fake online shopping session
+- add/remove/checkout/close continue to work locally for UI testing
 
-## Monorepo Structure
+Use this mode to test:
 
-```text
-apps/
-  cart-edge/      Express + WebSocket cart backend
-  cart-screen/    Expo web tablet UI
-packages/
-  shared/         Shared protocol and data models
-```
+- QR screen
+- waiting state
+- session activation transition
+- shopping list rendering
+- cart item rendering
+- add/remove overlays
+- checkout/reset flow
 
-## Requirements
+### `online-api`
 
-- Node.js 20 or newer
-- npm 10 or newer
+Prepares the future teammate backend flow:
+
+- QR value points to `${CARTO_WEB_BASE_URL}/pair?cartCode=${CART_CODE}`
+- the cart polls `GET ${CARTO_API_BASE_URL}/api/carts/${CART_CODE}/active-session`
+- requests include `Authorization: Bearer ${DEVICE_SECRET}`
+- cart item / checkout / close actions are routed through API adapters
+
+If the backend is unavailable, the UI stays safe and shows offline/waiting state instead of crashing.
 
 ## Environment Variables
 
-For `apps/cart-screen`, set:
+The cart screen supports both plain and Expo-public names, but because the UI runs in Expo web, prefer the `EXPO_PUBLIC_*` variables.
+
+Example local UI testing with mock online mode:
 
 ```env
+EXPO_PUBLIC_CARTO_INTEGRATION_MODE=mock-online
+EXPO_PUBLIC_CART_CODE=CART-001
+EXPO_PUBLIC_DEVICE_SECRET=dev-device-secret
+EXPO_PUBLIC_CARTO_API_BASE_URL=http://localhost:3000
+EXPO_PUBLIC_CARTO_WEB_BASE_URL=http://localhost:3000
 EXPO_PUBLIC_CART_EDGE_WS_URL=ws://localhost:4000/ws
 EXPO_PUBLIC_CART_EDGE_HTTP_URL=http://localhost:4000
-EXPO_PUBLIC_CUSTOMER_WEBAPP_URL=https://carto.com
 ```
 
-If you do not set them, the tablet app defaults to localhost for `cart-edge`.
+Example current local-edge mode:
+
+```env
+EXPO_PUBLIC_CARTO_INTEGRATION_MODE=local-edge
+EXPO_PUBLIC_CART_EDGE_WS_URL=ws://localhost:4000/ws
+EXPO_PUBLIC_CART_EDGE_HTTP_URL=http://localhost:4000
+```
+
+Example future teammate Vercel mode:
+
+```env
+EXPO_PUBLIC_CARTO_INTEGRATION_MODE=online-api
+EXPO_PUBLIC_CART_CODE=CART-001
+EXPO_PUBLIC_DEVICE_SECRET=dev-device-secret
+EXPO_PUBLIC_CARTO_API_BASE_URL=https://teammate-vercel-url.vercel.app
+EXPO_PUBLIC_CARTO_WEB_BASE_URL=https://teammate-vercel-url.vercel.app
+```
+
+## Online Pairing Model
+
+- The QR contains the cart pairing URL only.
+- The QR does not contain the shopping list.
+- The cart expects the backend to return JSON responses, not JSON files.
+- In online mode, the cart polls the active-session endpoint while waiting.
+
+Expected future QR value:
+
+```text
+${CARTO_WEB_BASE_URL}/pair?cartCode=${CART_CODE}
+```
+
+Expected future waiting response:
+
+```json
+{
+  "status": "waiting",
+  "cartCode": "CART-001"
+}
+```
+
+Expected future active response:
+
+```json
+{
+  "status": "active",
+  "cartCode": "CART-001",
+  "sessionId": "SESSION-123",
+  "cartSessionId": "CARTSESSION-999",
+  "receiptId": "RECEIPT-1001",
+  "shoppingList": [
+    {
+      "productId": "p1",
+      "name": "Milk",
+      "quantity": 1,
+      "checked": false
+    }
+  ],
+  "cartItems": [],
+  "total": 0
+}
+```
 
 ## Install
 
@@ -114,23 +184,16 @@ npm install
 
 ## Run The App
 
-Start the backend:
+Start the local backend:
 
 ```bash
 npm run dev:edge
 ```
 
-Start the tablet UI:
+Start the cart screen:
 
 ```bash
 npm run dev:screen
-```
-
-Open the web tablet UI from the Expo output, or export the web build locally with:
-
-```bash
-cd apps/cart-screen
-npx expo export -p web
 ```
 
 ## Useful Commands
@@ -147,7 +210,14 @@ Build shared packages and backend:
 npm run build
 ```
 
-## Backend Endpoints
+Export the cart screen web build:
+
+```bash
+cd apps/cart-screen
+npx expo export -p web
+```
+
+## Local-Edge Endpoints
 
 Health:
 
@@ -183,24 +253,9 @@ POST /dev/payment/success
 POST /dev/payment/failure
 ```
 
-## Notes For Integration
-
-- `cart-edge` remains the source of truth for cart state, shopping lists, totals, checkout, and session lifecycle.
-- `cart-screen` listens to WebSocket snapshots and renders the shopper UI.
-- QR pairing already exists in the backend session manager and is reused by the current UI.
-- The static map is front-end only and does not require backend localization.
-
-## Theme Switching
-
-Use the tablet `Settings` screen to switch between:
-
-- `Carto Blue Green`
-- `Premium Light`
-- `Friendly Supermarket`
-
 ## Current Verification
 
-The current app was verified with:
+Verified with:
 
 ```bash
 npm run typecheck
@@ -208,10 +263,3 @@ npm run build
 cd apps/cart-screen
 npx expo export -p web
 ```
-
-## TODO
-
-- Replace the QR welcome card with the final production logo asset when branding files are available
-- Replace the camera placeholder with the final live camera surface where supported
-- Connect any future real payment confirmation UI to the existing checkout backend events
-- If a customer web app URL changes, update `EXPO_PUBLIC_CUSTOMER_WEBAPP_URL`

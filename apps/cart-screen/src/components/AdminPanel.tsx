@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import type { CartSnapshot } from "../store/cartUiStore";
-import { CART_EDGE_HTTP_URL, CART_SCREEN_BACKEND_MODE } from "../realtime/config";
+import { CART_EDGE_HTTP_URL, CARTO_INTEGRATION_MODE } from "../realtime/config";
 import { postDevAction } from "../realtime/httpClient";
 import { formatMoney } from "./TotalsCard";
 
@@ -82,7 +82,7 @@ export function AdminPanel({
   }
 
   async function postDev(path: string, body: unknown = {}): Promise<void> {
-    if (CART_SCREEN_BACKEND_MODE === "carto") {
+    if (CARTO_INTEGRATION_MODE === "online-api" || CARTO_INTEGRATION_MODE === "mock-online") {
       await postDevAction(path, body);
       return;
     }

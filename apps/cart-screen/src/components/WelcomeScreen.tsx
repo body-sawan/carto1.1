@@ -96,14 +96,16 @@ export function WelcomeScreen({
           )}
         </View>
 
-        <View style={styles.codeBlock}>
-          <Text style={[styles.codeLabel, { color: theme.textMuted, fontSize: scaleSize(11, textScale) }]}>
-            {strings.pairingCode}
-          </Text>
-          <Text style={[styles.codeValue, { color: theme.success, fontSize: scaleSize(34, textScale) }]}>
-            {pairing?.pairingCode ?? "------"}
-          </Text>
-        </View>
+        {pairing?.pairingCode ? (
+          <View style={styles.codeBlock}>
+            <Text style={[styles.codeLabel, { color: theme.textMuted, fontSize: scaleSize(11, textScale) }]}>
+              {strings.pairingCode}
+            </Text>
+            <Text style={[styles.codeValue, { color: theme.success, fontSize: scaleSize(34, textScale) }]}>
+              {pairing.pairingCode}
+            </Text>
+          </View>
+        ) : null}
 
         <View style={styles.codeBlock}>
           <Text style={[styles.codeLabel, { color: theme.textMuted, fontSize: scaleSize(11, textScale) }]}>

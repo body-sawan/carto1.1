@@ -1,5 +1,15 @@
 # Cart-Webapp Communication Contract
 
+Legacy note:
+This document describes the older `local-edge` pairing flow between the cart device and a local sender/webapp.
+It is not the preferred future online integration model for the cart screen.
+
+For the current cart-screen prep work:
+
+- `local-edge` keeps using this contract
+- `mock-online` simulates the future online backend flow
+- `online-api` is prepared for a teammate backend that exposes `/pair?cartCode=...` and `/api/carts/{cartCode}/active-session`
+
 This document describes the current cart/device to webapp/mobile app pairing flow.
 
 The cart-edge backend is the source of truth for the active cart session. The QR code only identifies the cart and pairing code. Do not put the full shopping list in the QR code.

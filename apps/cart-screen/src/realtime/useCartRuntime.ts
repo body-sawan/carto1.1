@@ -1,7 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useCartUiStore } from "../store/cartUiStore";
-import { CART_SCREEN_BACKEND_MODE } from "./config";
-import { buildWaitingSnapshot, fetchCartoActiveSession, fetchCartoQr, mapActiveSessionToSnapshot } from "./cartoApi";
+import { CARTO_INTEGRATION_MODE } from "./config";
+import {
+  addCartItem,
+  buildWaitingSnapshot,
+  checkoutCart,
+  closeCartSession,
+  getActiveSession,
+  removeCartItem,
+  mapActiveSessionToSnapshot,
+  resetMockOnlineSession
+} from "./cartoApi";
 import {
   READ_ONLY_SESSION_MESSAGE,
   cancelLocalGuestCheckout,
@@ -17,25 +26,25 @@ import { useCartSocket } from "./useCartSocket";
 type RuntimeActions = {
   cancelCheckout: () => void;
   confirmPayment: () => void;
+  removeItem: (productId: string, quantity?: number) => void;
   resetSession: () => void;
   retryPayment: () => void;
   startCheckout: () => void;
   startShopping: () => void;
+  syncAddedItem: (productId: string, quantity?: number) => void;
 };
 
 export function useCartRuntime(): RuntimeActions {
-  const mode = CART_SCREEN_BACKEND_MODE;
-  const edgeSocket = useCartSocket(mode === "edge");
-  const edgeHealth = useBackendHealth(mode === "edge");
+  const mode = CARTO_INTEGRATION_MODE;
+  const edgeSocket = useCartSocket(mode === "local-edge");
+  const edgeHealth = useBackendHealth(mode === "local-edge");
   const snapshot = useCartUiStore((state) => state.snapshot);
   const sessionControlMode = useCartUiStore((state) => state.sessionControlMode);
   const setBackendStatus = useCartUiStore((state) => state.setBackendStatus);
   const setConnected = useCartUiStore((state) => state.setConnected);
   const setSessionControlMode = useCartUiStore((state) => state.setSessionControlMode);
   const setSnapshot = useCartUiStore((state) => state.setSnapshot);
-  const setTransportMode = useCartUiStore((state) => state.setTransportMode);
-  const [qrRefreshNonce, setQrRefreshNonce] = useState(0);
-  const qrRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const setIntegrationMode = useCartUiStore((state) => state.setIntegrationMode);
   const snapshotRef = useRef(snapshot);
 
   useEffect(() => {
@@ -43,28 +52,26 @@ export function useCartRuntime(): RuntimeActions {
   }, [snapshot]);
 
   useEffect(() => {
-    setTransportMode(mode);
-  }, [mode, setTransportMode]);
+    setIntegrationMode(mode);
+  }, [mode, setIntegrationMode]);
 
   useEffect(() => {
-    if (mode !== "edge") return;
+    if (mode !== "local-edge") return;
 
     setSessionControlMode("full");
     setBackendStatus(
-      edgeHealth.status === "online"
-        ? "connected"
-        : edgeHealth.status === "offline"
-          ? "offline"
-          : "checking"
+      edgeHealth.status === "offline"
+        ? "offline"
+        : snapshot?.state === "WAITING_FOR_LIST"
+          ? "waiting"
+          : snapshot
+            ? "active"
+            : "connected"
     );
-  }, [edgeHealth.status, mode, setBackendStatus, setSessionControlMode]);
+  }, [edgeHealth.status, mode, setBackendStatus, setSessionControlMode, snapshot]);
 
   useEffect(() => {
-    if (mode !== "carto") {
-      if (qrRefreshTimerRef.current) {
-        clearTimeout(qrRefreshTimerRef.current);
-        qrRefreshTimerRef.current = null;
-      }
+    if (mode === "local-edge") {
       return undefined;
     }
 
@@ -77,44 +84,30 @@ export function useCartRuntime(): RuntimeActions {
     let mounted = true;
     let pollTimer: ReturnType<typeof setTimeout> | null = null;
 
-    async function loadQrSnapshot(signal?: AbortSignal) {
-      const qr = await fetchCartoQr(signal);
-      if (!mounted) return;
-
-      setSnapshot(buildWaitingSnapshot(qr));
-      setConnected(true);
-      setSessionControlMode("full");
-      setBackendStatus("waiting");
-      scheduleQrRefresh(qr.expiresAt);
-    }
+    setSnapshot(buildWaitingSnapshot());
 
     async function poll() {
       const controller = new AbortController();
+      const result = await getActiveSession(undefined, undefined, controller.signal);
+      if (!mounted) return;
 
-      try {
-        const activeSession = await fetchCartoActiveSession(controller.signal);
-        if (!mounted) return;
-
-        if (!activeSession.active) {
-          await loadQrSnapshot(controller.signal);
-        } else {
-          if (qrRefreshTimerRef.current) {
-            clearTimeout(qrRefreshTimerRef.current);
-            qrRefreshTimerRef.current = null;
-          }
-          setSnapshot(mapActiveSessionToSnapshot(activeSession, snapshotRef.current));
-          setConnected(true);
-          setSessionControlMode("read_only");
-          setBackendStatus("active");
-        }
-      } catch {
-        if (!mounted) return;
+      if (!result.ok) {
         setConnected(false);
         setBackendStatus("offline");
-      } finally {
-        if (mounted) {
-          pollTimer = setTimeout(poll, 2500);
-        }
+      } else if (result.data.status === "waiting") {
+        setConnected(true);
+        setSessionControlMode("full");
+        setSnapshot(buildWaitingSnapshot(result.data.cartCode));
+        setBackendStatus("waiting");
+      } else {
+        setConnected(true);
+        setSessionControlMode(mode === "online-api" ? "read_only" : "full");
+        setSnapshot(mapActiveSessionToSnapshot(result.data, snapshotRef.current));
+        setBackendStatus("active");
+      }
+
+      if (mounted && !(result.ok && result.data.status === "active")) {
+        pollTimer = setTimeout(poll, 2500);
       }
     }
 
@@ -124,83 +117,91 @@ export function useCartRuntime(): RuntimeActions {
       mounted = false;
       if (pollTimer) clearTimeout(pollTimer);
     };
-  }, [
-    mode,
-    qrRefreshNonce,
-    sessionControlMode,
-    setBackendStatus,
-    setConnected,
-    setSessionControlMode,
-    setSnapshot,
-  ]);
+  }, [mode, sessionControlMode, setBackendStatus, setConnected, setSessionControlMode, setSnapshot]);
 
-  const actions = useMemo<RuntimeActions>(() => {
-    if (mode === "edge") {
+  return useMemo<RuntimeActions>(() => {
+    if (mode === "local-edge") {
       return {
         cancelCheckout: () => edgeSocket.cancelCheckout(),
         confirmPayment: () => edgeSocket.confirmPayment(),
+        removeItem: () => undefined,
         resetSession: () => edgeSocket.resetSession(),
         retryPayment: () => edgeSocket.retryPayment(),
         startCheckout: () => edgeSocket.startCheckout(),
-        startShopping: () => edgeSocket.startShopping()
+        startShopping: () => edgeSocket.startShopping(),
+        syncAddedItem: () => undefined
       };
     }
 
+    const canWrite = mode === "mock-online" || sessionControlMode === "local_guest";
+
     return {
       cancelCheckout: () => {
-        if (sessionControlMode === "local_guest") {
-          cancelLocalGuestCheckout();
-          return;
-        }
-        throw new Error(READ_ONLY_SESSION_MESSAGE);
+        assertWritable(canWrite);
+        cancelLocalGuestCheckout();
       },
       confirmPayment: () => {
-        if (sessionControlMode === "local_guest") {
-          confirmLocalGuestPayment();
-          return;
+        assertWritable(canWrite);
+        confirmLocalGuestPayment();
+      },
+      removeItem: (productId, quantity = 1) => {
+        if (mode === "online-api") {
+          void removeCartItem(undefined, undefined, {
+            cartSessionId: snapshotRef.current?.activeListId ?? null,
+            productId,
+            quantity,
+            receiptId: snapshotRef.current?.payment.transactionId ?? null,
+            sessionId: snapshotRef.current?.sessionId ?? null
+          });
         }
-        throw new Error(READ_ONLY_SESSION_MESSAGE);
       },
       resetSession: () => {
-        if (sessionControlMode === "local_guest") {
-          resetLocalGuestSession();
-          return;
+        assertWritable(canWrite);
+        if (mode === "online-api") {
+          void closeCartSession(undefined, undefined, {
+            cartSessionId: snapshotRef.current?.activeListId ?? null,
+            receiptId: snapshotRef.current?.payment.transactionId ?? null,
+            sessionId: snapshotRef.current?.sessionId ?? null
+          });
         }
-        throw new Error(READ_ONLY_SESSION_MESSAGE);
+        resetLocalGuestSession();
+        resetMockOnlineSession();
       },
       retryPayment: () => {
-        if (sessionControlMode === "local_guest") {
-          retryLocalGuestPayment();
-          return;
-        }
-        throw new Error(READ_ONLY_SESSION_MESSAGE);
+        assertWritable(canWrite);
+        retryLocalGuestPayment();
       },
       startCheckout: () => {
-        if (sessionControlMode === "local_guest") {
-          startLocalGuestCheckout();
-          return;
+        assertWritable(canWrite);
+        startLocalGuestCheckout();
+        if (mode === "online-api") {
+          void checkoutCart(undefined, undefined, {
+            cartSessionId: snapshotRef.current?.activeListId ?? null,
+            receiptId: snapshotRef.current?.payment.transactionId ?? null,
+            sessionId: snapshotRef.current?.sessionId ?? null
+          });
         }
-        throw new Error(READ_ONLY_SESSION_MESSAGE);
       },
       startShopping: () => {
         startLocalGuestSession();
+      },
+      syncAddedItem: (productId, quantity = 1) => {
+        if (mode === "online-api") {
+          void addCartItem(undefined, undefined, {
+            cartSessionId: snapshotRef.current?.activeListId ?? null,
+            productId,
+            quantity,
+            receiptId: snapshotRef.current?.payment.transactionId ?? null,
+            sessionId: snapshotRef.current?.sessionId ?? null
+          });
+        }
       }
     };
   }, [edgeSocket, mode, sessionControlMode]);
+}
 
-  return actions;
-
-  function scheduleQrRefresh(expiresAt?: string) {
-    if (qrRefreshTimerRef.current) {
-      clearTimeout(qrRefreshTimerRef.current);
-      qrRefreshTimerRef.current = null;
-    }
-
-    if (!expiresAt) return;
-
-    const refreshInMs = Math.max(1000, new Date(expiresAt).getTime() - Date.now() + 1000);
-    qrRefreshTimerRef.current = setTimeout(() => {
-      setQrRefreshNonce((current) => current + 1);
-    }, refreshInMs);
+function assertWritable(canWrite: boolean) {
+  if (!canWrite) {
+    throw new Error(READ_ONLY_SESSION_MESSAGE);
   }
 }

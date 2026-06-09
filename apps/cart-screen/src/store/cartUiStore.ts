@@ -8,7 +8,7 @@ export type UiLanguage = "en" | "ar";
 export type UiThemeName = "premium_light" | "friendly_supermarket" | "carto_blue_green";
 export type UiTextSize = "normal" | "large";
 export type UiScanMode = "auto" | "manual";
-export type TransportMode = "edge" | "carto";
+export type IntegrationMode = "local-edge" | "online-api" | "mock-online";
 export type SessionControlMode = "full" | "local_guest" | "read_only";
 export type CartBackendStatus = "checking" | "connected" | "waiting" | "active" | "offline";
 
@@ -18,7 +18,7 @@ interface CartUiStore {
   lastUpdateAt: string | null;
   backendStatus: CartBackendStatus;
   sessionControlMode: SessionControlMode;
-  transportMode: TransportMode;
+  integrationMode: IntegrationMode;
   activeTab: TabletTab;
   language: UiLanguage;
   theme: UiThemeName;
@@ -29,7 +29,7 @@ interface CartUiStore {
   setSnapshot: (snapshot: CartSnapshot) => void;
   clearSnapshot: () => void;
   setSessionControlMode: (mode: SessionControlMode) => void;
-  setTransportMode: (mode: TransportMode) => void;
+  setIntegrationMode: (mode: IntegrationMode) => void;
   setActiveTab: (activeTab: TabletTab) => void;
   setLanguage: (language: UiLanguage) => void;
   setTheme: (theme: UiThemeName) => void;
@@ -43,7 +43,7 @@ export const useCartUiStore = create<CartUiStore>((set) => ({
   lastUpdateAt: null,
   backendStatus: "checking",
   sessionControlMode: "full",
-  transportMode: "edge",
+  integrationMode: "local-edge",
   activeTab: "home",
   language: "en",
   theme: "carto_blue_green",
@@ -54,7 +54,7 @@ export const useCartUiStore = create<CartUiStore>((set) => ({
   setSnapshot: (snapshot) => set({ snapshot, lastUpdateAt: new Date().toISOString() }),
   clearSnapshot: () => set({ snapshot: null, lastUpdateAt: null }),
   setSessionControlMode: (sessionControlMode) => set({ sessionControlMode }),
-  setTransportMode: (transportMode) => set({ transportMode }),
+  setIntegrationMode: (integrationMode) => set({ integrationMode }),
   setActiveTab: (activeTab) => set({ activeTab }),
   setLanguage: (language) => set({ language }),
   setTheme: (theme) => set({ theme }),

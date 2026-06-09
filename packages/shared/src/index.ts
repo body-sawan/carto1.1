@@ -80,6 +80,39 @@ export interface Product {
   active: boolean;
 }
 
+export interface CartApiShoppingListItem {
+  productId: string;
+  name: string;
+  quantity: number;
+  checked?: boolean;
+}
+
+export interface CartApiCartItem {
+  productId: string;
+  name: string;
+  price: number;
+  quantity: number;
+  total: number;
+}
+
+export interface CartActiveSessionWaiting {
+  status: "waiting";
+  cartCode: string;
+}
+
+export interface CartActiveSessionActive {
+  status: "active";
+  cartCode: string;
+  sessionId: string;
+  cartSessionId: string;
+  receiptId?: string | null;
+  shoppingList: CartApiShoppingListItem[];
+  cartItems: CartApiCartItem[];
+  total: number;
+}
+
+export type CartActiveSessionResponse = CartActiveSessionWaiting | CartActiveSessionActive;
+
 export interface IncomingShoppingListItem {
   productId: string;
   name: string;
@@ -98,6 +131,7 @@ export interface IncomingShoppingList {
 export type ShoppingListPayload = IncomingShoppingList;
 
 export interface ShoppingListItem extends IncomingShoppingListItem {
+  checked?: boolean;
   status: ShoppingListItemStatus;
   inCartQuantity: number;
   price?: number;

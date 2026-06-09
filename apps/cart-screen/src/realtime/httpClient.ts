@@ -1,6 +1,6 @@
 import type { Product } from "@carto/shared";
-import { CART_EDGE_HTTP_URL, CART_SCREEN_BACKEND_MODE } from "./config";
-import { fetchCartoCatalog } from "./cartoApi";
+import { CART_EDGE_HTTP_URL, CARTO_INTEGRATION_MODE } from "./config";
+import { addCartItem, fetchCartoCatalog, removeCartItem } from "./cartoApi";
 import {
   addLocalProduct,
   cancelLocalGuestCheckout,
@@ -30,7 +30,7 @@ export interface HealthResponse {
 }
 
 export async function fetchCatalog() {
-  if (CART_SCREEN_BACKEND_MODE === "carto") {
+  if (CARTO_INTEGRATION_MODE === "online-api" || CARTO_INTEGRATION_MODE === "mock-online") {
     const products = await fetchCartoCatalog();
     return { products };
   }
@@ -45,7 +45,7 @@ export async function fetchHealthStatus(signal?: AbortSignal) {
 }
 
 export async function postDevAction<T = unknown>(path: string, body: unknown = {}) {
-  if (CART_SCREEN_BACKEND_MODE === "carto") {
+  if (CARTO_INTEGRATION_MODE === "online-api" || CARTO_INTEGRATION_MODE === "mock-online") {
     return postCartoLocalAction<T>(path, body);
   }
 
@@ -74,11 +74,17 @@ async function postCartoLocalAction<T>(path: string, body: unknown) {
 
   if (path === "/dev/scan") {
     addLocalProduct(payload.productId, payload.barcode);
+    if (CARTO_INTEGRATION_MODE === "online-api" && payload.productId) {
+      void addCartItem(undefined, undefined, { productId: payload.productId, quantity: 1 });
+    }
     return { ok: true } as T;
   }
 
   if (path === "/dev/remove") {
     removeLocalProduct(payload.productId, payload.barcode);
+    if (CARTO_INTEGRATION_MODE === "online-api" && payload.productId) {
+      void removeCartItem(undefined, undefined, { productId: payload.productId, quantity: 1 });
+    }
     return { ok: true } as T;
   }
 

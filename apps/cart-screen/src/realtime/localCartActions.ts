@@ -7,10 +7,9 @@ export const READ_ONLY_SESSION_MESSAGE = "Backend-paired sessions are read-only 
 export const LOCAL_GUEST_REQUIRED_MESSAGE = "Start shopping without a list to use local cart controls.";
 
 export function startLocalGuestSession() {
-  const { snapshot, setBackendStatus, setConnected, setSessionControlMode, setSnapshot, setTransportMode } = useCartUiStore.getState();
+  const { snapshot, setBackendStatus, setConnected, setSessionControlMode, setSnapshot } = useCartUiStore.getState();
   const sessionId = `guest_${Date.now()}`;
 
-  setTransportMode("carto");
   setSessionControlMode("local_guest");
   setConnected(true);
   setBackendStatus("connected");
