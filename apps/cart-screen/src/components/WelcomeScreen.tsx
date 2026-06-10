@@ -1,6 +1,6 @@
 import { Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import QRCode from "react-native-qrcode-svg";
-import type { CartBackendStatus, CartSnapshot, UiThemeName } from "../store/cartUiStore";
+import type { CartBackendStatus, CartSnapshot } from "../store/cartUiStore";
 import { CART_SCREEN_BACKEND_MODE } from "../realtime/config";
 import type { AppStrings, ThemePalette } from "../ui/appUi";
 import { scaleSize, shadowStyle } from "../ui/appUi";
@@ -12,12 +12,10 @@ interface WelcomeScreenProps {
   cartCode: string;
   connected: boolean;
   onContinueWithoutList: () => void;
-  onThemeChange: (theme: UiThemeName) => void;
   snapshot: CartSnapshot | null;
   strings: AppStrings;
   textScale: number;
   theme: ThemePalette;
-  themeName: UiThemeName;
 }
 
 export function WelcomeScreen({
@@ -25,12 +23,10 @@ export function WelcomeScreen({
   cartCode,
   connected,
   onContinueWithoutList,
-  onThemeChange,
   snapshot,
   strings,
   textScale,
-  theme,
-  themeName
+  theme
 }: WelcomeScreenProps) {
   const { width } = useWindowDimensions();
   const compact = width < 920;
@@ -39,7 +35,6 @@ export function WelcomeScreen({
   const isCartoMode = backendMode === "carto";
   const cartCodeLabel = cartCode || pairing?.cartId || "";
   const qrValue = pairing?.qrPayload ?? "";
-  const themeOptions: UiThemeName[] = ["premium_light", "friendly_supermarket", "carto_blue_green"];
   const pairingStatusLabel = getPairingStatusLabel(backendStatus, strings);
   const continueDisabled = !connected;
 
@@ -154,53 +149,9 @@ export function WelcomeScreen({
         <Text style={[styles.helper, { color: theme.textMuted, fontSize: scaleSize(13, textScale) }]}>
           {strings.noListExperience}
         </Text>
-
-        <View style={styles.themeSection}>
-          <Text style={[styles.themeLabel, { color: theme.textMuted, fontSize: scaleSize(12, textScale) }]}>
-            {strings.theme}
-          </Text>
-          <View style={styles.themeOptions}>
-            {themeOptions.map((option) => {
-              const selected = option === themeName;
-              return (
-                <Pressable
-                  key={option}
-                  accessibilityRole="button"
-                  onPress={() => onThemeChange(option)}
-                  style={({ pressed }) => [
-                    styles.themeButton,
-                    {
-                      backgroundColor: selected ? theme.accentSoft : theme.card,
-                      borderColor: selected ? theme.accent : theme.border,
-                      transform: [{ scale: pressed ? 0.98 : 1 }]
-                    }
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.themeButtonText,
-                      {
-                        color: selected ? theme.accent : theme.textSecondary,
-                        fontSize: scaleSize(12, textScale)
-                      }
-                    ]}
-                  >
-                    {getThemeLabel(option, strings)}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </View>
       </RevealView>
     </View>
   );
-}
-
-function getThemeLabel(themeName: UiThemeName, strings: AppStrings) {
-  if (themeName === "premium_light") return strings.themePremiumLight;
-  if (themeName === "friendly_supermarket") return strings.themeFriendlySupermarket;
-  return strings.themeCartoBlueGreen;
 }
 
 function getPairingStatusLabel(status: CartBackendStatus, strings: AppStrings) {
@@ -346,32 +297,5 @@ const styles = StyleSheet.create({
   cartCodeValue: {
     fontWeight: "900",
     letterSpacing: 0.6
-  },
-  themeSection: {
-    width: "100%",
-    maxWidth: 760,
-    gap: 10
-  },
-  themeLabel: {
-    fontWeight: "900",
-    textAlign: "center",
-    textTransform: "uppercase"
-  },
-  themeOptions: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "center",
-    gap: 10
-  },
-  themeButton: {
-    minHeight: 42,
-    borderRadius: 999,
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    alignItems: "center",
-    justifyContent: "center"
-  },
-  themeButtonText: {
-    fontWeight: "800"
   }
 });

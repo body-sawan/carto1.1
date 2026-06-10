@@ -13,7 +13,7 @@ import { WelcomeScreen } from "../components/WelcomeScreen";
 import { CART_CODE } from "../realtime/config";
 import { useCartRuntime } from "../realtime/useCartRuntime";
 import { useCartUiStore } from "../store/cartUiStore";
-import { getAppStrings, getTextScale, getThemePalette, scaleSize } from "../ui/appUi";
+import { FIXED_THEME_NAME, getAppStrings, getTextScale, getThemePalette, scaleSize } from "../ui/appUi";
 
 type AppFlowStage = "welcome" | "transition" | "shopping" | "receipt";
 
@@ -26,11 +26,9 @@ export function CartScreen() {
   const connected = useCartUiStore((state) => state.connected);
   const language = useCartUiStore((state) => state.language);
   const sessionControlMode = useCartUiStore((state) => state.sessionControlMode);
-  const themeName = useCartUiStore((state) => state.theme);
-  const setTheme = useCartUiStore((state) => state.setTheme);
   const textSize = useCartUiStore((state) => state.textSize);
   const strings = getAppStrings(language);
-  const theme = getThemePalette(themeName);
+  const theme = getThemePalette(FIXED_THEME_NAME);
   const textScale = getTextScale(textSize);
 
   const [stage, setStage] = useState<AppFlowStage>("welcome");
@@ -312,12 +310,10 @@ export function CartScreen() {
         cartCode={CART_CODE}
         connected={connected}
         onContinueWithoutList={() => void handleContinueWithoutList()}
-        onThemeChange={setTheme}
         snapshot={snapshot}
         strings={strings}
         textScale={textScale}
         theme={theme}
-        themeName={themeName}
       />
     );
   }

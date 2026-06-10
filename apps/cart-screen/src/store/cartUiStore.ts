@@ -5,7 +5,7 @@ export type { CartSnapshot } from "@carto/shared";
 
 export type TabletTab = "home" | "scan" | "cart" | "map" | "checkout" | "settings";
 export type UiLanguage = "en" | "ar";
-export type UiThemeName = "premium_light" | "friendly_supermarket" | "carto_blue_green";
+export type UiThemeName = "carto_blur_green";
 export type UiTextSize = "normal" | "large";
 export type UiScanMode = "auto" | "manual";
 export type IntegrationMode = "local-edge" | "online-api" | "mock-online";
@@ -21,7 +21,6 @@ interface CartUiStore {
   integrationMode: IntegrationMode;
   activeTab: TabletTab;
   language: UiLanguage;
-  theme: UiThemeName;
   textSize: UiTextSize;
   scanMode: UiScanMode;
   setConnected: (connected: boolean) => void;
@@ -32,7 +31,6 @@ interface CartUiStore {
   setIntegrationMode: (mode: IntegrationMode) => void;
   setActiveTab: (activeTab: TabletTab) => void;
   setLanguage: (language: UiLanguage) => void;
-  setTheme: (theme: UiThemeName) => void;
   setTextSize: (textSize: UiTextSize) => void;
   setScanMode: (scanMode: UiScanMode) => void;
 }
@@ -46,7 +44,6 @@ export const useCartUiStore = create<CartUiStore>((set) => ({
   integrationMode: "local-edge",
   activeTab: "home",
   language: "en",
-  theme: "carto_blue_green",
   textSize: "normal",
   scanMode: "auto",
   setConnected: (connected) => set({ connected }),
@@ -57,7 +54,6 @@ export const useCartUiStore = create<CartUiStore>((set) => ({
   setIntegrationMode: (integrationMode) => set({ integrationMode }),
   setActiveTab: (activeTab) => set({ activeTab }),
   setLanguage: (language) => set({ language }),
-  setTheme: (theme) => set({ theme }),
   setTextSize: (textSize) => set({ textSize }),
   setScanMode: (scanMode) => set({ scanMode })
 }));

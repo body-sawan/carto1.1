@@ -70,7 +70,6 @@ export interface AppStrings {
   receiptPlaceholder: string;
   startNewSession: string;
   language: string;
-  theme: string;
   textSize: string;
   scanMode: string;
   resetCart: string;
@@ -118,9 +117,6 @@ export interface AppStrings {
   paymentCompleteBody: string;
   thankYou: string;
   returnCountdown: string;
-  themePremiumLight: string;
-  themeFriendlySupermarket: string;
-  themeCartoBlueGreen: string;
   openWebsiteList: string;
   productAdded: string;
   productNotAdded: string;
@@ -132,67 +128,25 @@ export interface AppStrings {
   pairingReady: string;
 }
 
-const premiumLightTheme: ThemePalette = {
-  background: "#f6f4ef",
-  surface: "#fffcf7",
-  card: "#ffffff",
-  cardMuted: "#f7f2ea",
-  textPrimary: "#17283f",
-  textSecondary: "#42556e",
-  textMuted: "#7a8799",
-  accent: "#245fff",
-  accentSoft: "#e9efff",
-  success: "#198754",
-  successSoft: "#e8f8ef",
-  warning: "#ca7b16",
-  warningSoft: "#fff2dc",
-  error: "#cf4d4d",
-  errorSoft: "#feeeee",
-  border: "#e8ded1",
-  shadow: "rgba(20, 35, 58, 0.14)",
-  nav: "rgba(255, 252, 247, 0.92)"
-};
-
-const friendlySupermarketTheme: ThemePalette = {
-  background: "#f4f8ec",
-  surface: "#fbfef6",
-  card: "#ffffff",
-  cardMuted: "#f1f8e3",
-  textPrimary: "#16342a",
-  textSecondary: "#305547",
-  textMuted: "#6f8578",
-  accent: "#ff8f1f",
-  accentSoft: "#fff1df",
-  success: "#2d9f5b",
-  successSoft: "#e8f8ee",
-  warning: "#cf7a14",
-  warningSoft: "#fff1da",
-  error: "#d74e4e",
-  errorSoft: "#fdeeee",
-  border: "#dce7d1",
-  shadow: "rgba(28, 60, 44, 0.12)",
-  nav: "rgba(251, 254, 246, 0.94)"
-};
-
-const cartoBlueGreenTheme: ThemePalette = {
-  background: "#edf7f6",
-  surface: "#f9fffe",
-  card: "#ffffff",
-  cardMuted: "#eef8f6",
-  textPrimary: "#15354f",
-  textSecondary: "#31566f",
-  textMuted: "#6b8797",
-  accent: "#1184ff",
-  accentSoft: "#e6f3ff",
-  success: "#17a36b",
-  successSoft: "#e6f8f0",
-  warning: "#d58716",
-  warningSoft: "#fff3dd",
-  error: "#d94d5c",
-  errorSoft: "#ffecef",
-  border: "#d8e8e6",
-  shadow: "rgba(15, 46, 72, 0.12)",
-  nav: "rgba(249, 255, 254, 0.94)"
+const cartoBlurGreenTheme: ThemePalette = {
+  background: "#eef8f1",
+  surface: "rgba(255, 255, 255, 0.78)",
+  card: "rgba(255, 255, 255, 0.92)",
+  cardMuted: "rgba(240, 248, 243, 0.96)",
+  textPrimary: "#16382f",
+  textSecondary: "#3d6656",
+  textMuted: "#739181",
+  accent: "#1c9b63",
+  accentSoft: "#dbf4e7",
+  success: "#148a56",
+  successSoft: "#dff5e8",
+  warning: "#c8861f",
+  warningSoft: "#fff2dd",
+  error: "#d35b63",
+  errorSoft: "#ffecee",
+  border: "rgba(178, 214, 193, 0.78)",
+  shadow: "rgba(17, 58, 40, 0.12)",
+  nav: "rgba(250, 255, 252, 0.82)"
 };
 
 const english: AppStrings = {
@@ -243,7 +197,6 @@ const english: AppStrings = {
   receiptPlaceholder: "Receipt / QR placeholder",
   startNewSession: "Start new session",
   language: "Language",
-  theme: "Theme",
   textSize: "Text size",
   scanMode: "Scan mode",
   resetCart: "Reset cart",
@@ -263,7 +216,7 @@ const english: AppStrings = {
   noList: "No list loaded",
   qrPrompt: "Scan this QR code from the website to send a shopping list to the cart.",
   pairingCode: "Pairing code",
-  settingsSubtitle: "Change the language, visual style, text size, and scan behavior.",
+  settingsSubtitle: "Change the language, text size, and scan behavior.",
   checkoutSubtitle: "Review the smart receipt and finish the payment flow.",
   receiptReady: "Receipt ready",
   resetCartHint: "This clears the current cart session and returns the cart to the QR start screen.",
@@ -291,9 +244,6 @@ const english: AppStrings = {
   paymentCompleteBody: "Your session is finished and the receipt is ready.",
   thankYou: "Thank you for shopping with Carto.",
   returnCountdown: "Returning to the QR screen in 5 seconds.",
-  themePremiumLight: "Premium Light",
-  themeFriendlySupermarket: "Friendly Supermarket",
-  themeCartoBlueGreen: "Carto Blue Green",
   openWebsiteList: "Open the website and create a shopping list to enjoy the full experience.",
   productAdded: "Added to cart",
   productNotAdded: "Product was not added",
@@ -353,7 +303,6 @@ const arabic: AppStrings = {
   receiptPlaceholder: "عنصر بديل للإيصال أو رمز QR",
   startNewSession: "ابدأ جلسة جديدة",
   language: "اللغة",
-  theme: "المظهر",
   textSize: "حجم النص",
   scanMode: "وضع المسح",
   resetCart: "إعادة ضبط السلة",
@@ -373,7 +322,7 @@ const arabic: AppStrings = {
   noList: "لا توجد قائمة",
   qrPrompt: "امسح رمز QR من الموقع لإرسال قائمة التسوق إلى العربة.",
   pairingCode: "رمز الربط",
-  settingsSubtitle: "غيّر اللغة والمظهر وحجم النص وطريقة المسح.",
+  settingsSubtitle: "غيّر اللغة وحجم النص وطريقة المسح.",
   checkoutSubtitle: "راجع الإيصال الذكي وأكمل عملية السداد.",
   receiptReady: "الإيصال جاهز",
   resetCartHint: "سيؤدي ذلك إلى مسح جلسة التسوق الحالية والعودة إلى شاشة QR.",
@@ -401,9 +350,6 @@ const arabic: AppStrings = {
   paymentCompleteBody: "انتهت الجلسة والإيصال جاهز.",
   thankYou: "شكرًا لتسوقك مع كارتو.",
   returnCountdown: "العودة إلى شاشة QR خلال 5 ثوانٍ.",
-  themePremiumLight: "إضاءة فاخرة",
-  themeFriendlySupermarket: "ألوان متجر ودودة",
-  themeCartoBlueGreen: "أزرق وأخضر كارتو",
   openWebsiteList: "افتح الموقع وأنشئ قائمة تسوق للاستفادة من التجربة الكاملة.",
   productAdded: "تمت الإضافة إلى السلة",
   productNotAdded: "لم تتم إضافة المنتج",
@@ -415,10 +361,10 @@ const arabic: AppStrings = {
   pairingReady: "جاهز للربط"
 };
 
-export function getThemePalette(theme: UiThemeName) {
-  if (theme === "premium_light") return premiumLightTheme;
-  if (theme === "friendly_supermarket") return friendlySupermarketTheme;
-  return cartoBlueGreenTheme;
+export const FIXED_THEME_NAME: UiThemeName = "carto_blur_green";
+
+export function getThemePalette(_theme?: UiThemeName) {
+  return cartoBlurGreenTheme;
 }
 
 export function getAppStrings(language: UiLanguage) {

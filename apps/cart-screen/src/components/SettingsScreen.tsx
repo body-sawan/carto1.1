@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
-import type { UiLanguage, UiScanMode, UiTextSize, UiThemeName } from "../store/cartUiStore";
+import type { UiLanguage, UiScanMode, UiTextSize } from "../store/cartUiStore";
 import type { AppStrings, ThemePalette } from "../ui/appUi";
 import { scaleSize, shadowStyle } from "../ui/appUi";
 
@@ -11,13 +11,11 @@ interface SettingsScreenProps {
   onResetCart: () => void;
   onScanModeChange: (scanMode: UiScanMode) => void;
   onTextSizeChange: (textSize: UiTextSize) => void;
-  onThemeChange: (theme: UiThemeName) => void;
   scanMode: UiScanMode;
   strings: AppStrings;
   textScale: number;
   textSize: UiTextSize;
   theme: ThemePalette;
-  themeName: UiThemeName;
 }
 
 export function SettingsScreen({
@@ -27,13 +25,11 @@ export function SettingsScreen({
   onResetCart,
   onScanModeChange,
   onTextSizeChange,
-  onThemeChange,
   scanMode,
   strings,
   textScale,
   textSize,
-  theme,
-  themeName
+  theme
 }: SettingsScreenProps) {
   const { width } = useWindowDimensions();
   const stacked = width < 1120;
@@ -43,35 +39,6 @@ export function SettingsScreen({
       <View style={[styles.layout, stacked ? styles.layoutStacked : null]}>
         <View style={styles.primaryColumn}>
           <SectionCard title={strings.settings} subtitle={strings.settingsSubtitle} theme={theme} textScale={textScale}>
-            <View style={styles.themeGrid}>
-              <ThemeChoice
-                active={themeName === "carto_blue_green"}
-                label={strings.themeCartoBlueGreen}
-                onPress={() => onThemeChange("carto_blue_green")}
-                preview={["#1184ff", "#17a36b", "#eef8f6"]}
-                textScale={textScale}
-                theme={theme}
-              />
-              <ThemeChoice
-                active={themeName === "premium_light"}
-                label={strings.themePremiumLight}
-                onPress={() => onThemeChange("premium_light")}
-                preview={["#245fff", "#ffffff", "#f7f2ea"]}
-                textScale={textScale}
-                theme={theme}
-              />
-              <ThemeChoice
-                active={themeName === "friendly_supermarket"}
-                label={strings.themeFriendlySupermarket}
-                onPress={() => onThemeChange("friendly_supermarket")}
-                preview={["#ff8f1f", "#2d9f5b", "#f1f8e3"]}
-                textScale={textScale}
-                theme={theme}
-              />
-            </View>
-          </SectionCard>
-
-          <SectionCard title={strings.language} theme={theme} textScale={textScale}>
             <ChoiceRow>
               <ChoiceButton
                 active={language === "en"}
@@ -245,44 +212,6 @@ function ChoiceButton({
   );
 }
 
-function ThemeChoice({
-  active,
-  label,
-  onPress,
-  preview,
-  textScale,
-  theme
-}: {
-  active: boolean;
-  label: string;
-  onPress: () => void;
-  preview: [string, string, string];
-  textScale: number;
-  theme: ThemePalette;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.themeChoice,
-        {
-          backgroundColor: active ? theme.accentSoft : theme.cardMuted,
-          borderColor: active ? theme.accent : theme.border,
-          transform: [{ scale: pressed ? 0.98 : 1 }]
-        }
-      ]}
-    >
-      <View style={styles.previewRow}>
-        {preview.map((color) => <View key={color} style={[styles.previewSwatch, { backgroundColor: color }]} />)}
-      </View>
-      <Text style={[styles.themeChoiceText, { color: theme.textPrimary, fontSize: scaleSize(13, textScale) }]}>
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1
@@ -315,27 +244,6 @@ const styles = StyleSheet.create({
   helperText: {
     fontWeight: "600",
     lineHeight: 20
-  },
-  themeGrid: {
-    gap: 10
-  },
-  themeChoice: {
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 14,
-    gap: 10
-  },
-  previewRow: {
-    flexDirection: "row",
-    gap: 8
-  },
-  previewSwatch: {
-    flex: 1,
-    height: 22,
-    borderRadius: 999
-  },
-  themeChoiceText: {
-    fontWeight: "800"
   },
   choiceRow: {
     flexDirection: "row",
