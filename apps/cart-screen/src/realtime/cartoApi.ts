@@ -196,7 +196,7 @@ export async function requestCarto<T>(
   return payload as T;
 }
 
-export async function fetchCartoQr(cartCode = CART_CODE): Promise<CartoQrData> {
+export async function fetchCartoQr(cartCode = CART_CODE, signal?: AbortSignal): Promise<CartoQrData> {
   if (CARTO_INTEGRATION_MODE === "mock-online") {
     return buildMockQrData(cartCode || MOCK_ACTIVE_SESSION.cartCode);
   }
@@ -205,9 +205,16 @@ export async function fetchCartoQr(cartCode = CART_CODE): Promise<CartoQrData> {
     throw new Error("Cart code is missing. Set CART_CODE or EXPO_PUBLIC_CART_CODE.");
   }
 
-  return requestCarto<CartoQrData>(`/api/carts/${encodeURIComponent(cartCode)}/qrcode`, {
-    method: "GET"
+  const data = await requestCarto<CartoQrData>(`/api/carts/${encodeURIComponent(cartCode)}/qrcode`, {
+    method: "GET",
+    signal
   });
+
+  if (!data?.qrValue) {
+    throw new Error("Failed to fetch QR code");
+  }
+
+  return data;
 }
 
 export async function fetchCartoActiveSession(

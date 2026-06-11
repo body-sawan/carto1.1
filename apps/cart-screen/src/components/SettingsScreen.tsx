@@ -38,7 +38,11 @@ export function SettingsScreen({
     <ScrollView contentContainerStyle={styles.scrollContent}>
       <View style={[styles.layout, stacked ? styles.layoutStacked : null]}>
         <View style={styles.primaryColumn}>
+<<<<<<< HEAD
           <SectionCard title={strings.settings} subtitle={strings.settingsSubtitle} theme={theme} textScale={textScale}>
+=======
+          <SectionCard title={strings.language} subtitle={strings.settingsSubtitle} theme={theme} textScale={textScale}>
+>>>>>>> save-detached-work
             <ChoiceRow>
               <ChoiceButton
                 active={language === "en"}

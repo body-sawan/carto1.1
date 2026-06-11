@@ -28,7 +28,11 @@ export function CartScreen() {
   const sessionControlMode = useCartUiStore((state) => state.sessionControlMode);
   const textSize = useCartUiStore((state) => state.textSize);
   const strings = getAppStrings(language);
+<<<<<<< HEAD
   const theme = getThemePalette(FIXED_THEME_NAME);
+=======
+  const theme = getThemePalette();
+>>>>>>> save-detached-work
   const textScale = getTextScale(textSize);
 
   const [stage, setStage] = useState<AppFlowStage>("welcome");
@@ -292,9 +296,7 @@ export function CartScreen() {
       <AppShell
         backendStatus={backendStatus}
         connected={connected}
-        language={language}
         onCloseSession={openCloseSessionConfirm}
-        sessionControlMode={sessionControlMode}
         snapshot={snapshot}
         strings={strings}
         textScale={textScale}

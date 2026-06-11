@@ -4,6 +4,7 @@ import { Package2 } from "lucide-react-native";
 import type { CartSnapshot, UiLanguage } from "../store/cartUiStore";
 import type { AppStrings, ThemePalette } from "../ui/appUi";
 import { formatCurrency, scaleSize, shadowStyle } from "../ui/appUi";
+import { ProductPromoPanel } from "./ProductPromoPanel";
 
 interface CartItemsPanelProps {
   connected: boolean;
@@ -197,6 +198,8 @@ export function CartItemsPanel({
           </View>
         ) : null}
       </ScrollView>
+
+      <ProductPromoPanel textScale={textScale} theme={theme} />
 
       <View style={[styles.summaryCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
         <Animated.View
