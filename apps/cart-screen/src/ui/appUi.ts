@@ -1,5 +1,5 @@
 import type { CartState } from "@carto/shared";
-import type { UiLanguage, UiTextSize, UiThemeName } from "../store/cartUiStore";
+import type { UiLanguage, UiTextSize } from "../store/cartUiStore";
 
 export interface ThemePalette {
   background: string;
@@ -263,7 +263,7 @@ const english: AppStrings = {
   noList: "No list loaded",
   qrPrompt: "Scan this QR code from the website to send a shopping list to the cart.",
   pairingCode: "Pairing code",
-  settingsSubtitle: "Change the language, visual style, text size, and scan behavior.",
+  settingsSubtitle: "Change the language, text size, and scan behavior.",
   checkoutSubtitle: "Review the smart receipt and finish the payment flow.",
   receiptReady: "Receipt ready",
   resetCartHint: "This clears the current cart session and returns the cart to the QR start screen.",
@@ -373,7 +373,7 @@ const arabic: AppStrings = {
   noList: "لا توجد قائمة",
   qrPrompt: "امسح رمز QR من الموقع لإرسال قائمة التسوق إلى العربة.",
   pairingCode: "رمز الربط",
-  settingsSubtitle: "غيّر اللغة والمظهر وحجم النص وطريقة المسح.",
+  settingsSubtitle: "غيّر اللغة وحجم النص وطريقة المسح.",
   checkoutSubtitle: "راجع الإيصال الذكي وأكمل عملية السداد.",
   receiptReady: "الإيصال جاهز",
   resetCartHint: "سيؤدي ذلك إلى مسح جلسة التسوق الحالية والعودة إلى شاشة QR.",
@@ -415,9 +415,7 @@ const arabic: AppStrings = {
   pairingReady: "جاهز للربط"
 };
 
-export function getThemePalette(theme: UiThemeName) {
-  if (theme === "premium_light") return premiumLightTheme;
-  if (theme === "friendly_supermarket") return friendlySupermarketTheme;
+export function getThemePalette() {
   return cartoBlueGreenTheme;
 }
 

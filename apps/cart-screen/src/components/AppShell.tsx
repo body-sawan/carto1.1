@@ -1,22 +1,18 @@
 import { X } from "lucide-react-native";
 import type { ReactNode } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
-import type { CartBackendStatus, CartSnapshot, SessionControlMode, UiLanguage } from "../store/cartUiStore";
+import { Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import type { CartBackendStatus, CartSnapshot } from "../store/cartUiStore";
 import type { AppStrings, ThemePalette } from "../ui/appUi";
-import {
-  formatStateLabel,
-  scaleSize,
-  shadowStyle
-} from "../ui/appUi";
+import { scaleSize, shadowStyle } from "../ui/appUi";
 import { CartoLogo } from "./CartoLogo";
+import { HeaderAdBanner } from "./HeaderAdBanner";
+import { StatusDotIndicator } from "./StatusDotIndicator";
 
 interface AppShellProps {
   backendStatus: CartBackendStatus;
   children: ReactNode;
   connected: boolean;
-  language: UiLanguage;
   onCloseSession: () => void;
-  sessionControlMode: SessionControlMode;
   snapshot: CartSnapshot | null;
   strings: AppStrings;
   textScale: number;
@@ -27,15 +23,14 @@ export function AppShell({
   backendStatus,
   children,
   connected,
-  language,
   onCloseSession,
-  sessionControlMode,
   snapshot,
   strings,
   textScale,
   theme
 }: AppShellProps) {
-  const backendLabel = formatBackendLabel(backendStatus, strings);
+  const { width } = useWindowDimensions();
+  const compact = width < 1220;
   const closeDisabled = false;
 
   return (
@@ -44,6 +39,7 @@ export function AppShell({
         <View
           style={[
             styles.topBar,
+            compact ? styles.topBarCompact : null,
             {
               backgroundColor: theme.surface,
               borderColor: theme.border
@@ -53,33 +49,18 @@ export function AppShell({
         >
           <View style={styles.brandGroup}>
             <CartoLogo height={54} radius={18} resizeMode="cover" width={150} />
-            <View style={styles.brandCopy}>
-              <Text style={[styles.subtitle, { color: theme.textMuted, fontSize: scaleSize(13, textScale) }]}>
-                {strings.appSubtitle}
-              </Text>
-            </View>
           </View>
 
-          <View style={styles.summaryGroup}>
-            <StatusPill
-              label={`${strings.backendStatus}: ${backendLabel}`}
-              textScale={textScale}
-              theme={theme}
-              tone={backendStatus === "active" ? "success" : backendStatus === "offline" ? "error" : backendStatus === "waiting" ? "warning" : "accent"}
-            />
-            <StatusPill
-              label={`${strings.screenStatus}: ${connected ? strings.screenConnected : strings.screenDisconnected}`}
-              textScale={textScale}
-              theme={theme}
-              tone={connected ? "accent" : "error"}
-            />
-            <StatusPill
-              label={`${strings.sessionStatus}: ${formatStateLabel(snapshot?.state, language)}`}
-              textScale={textScale}
-              theme={theme}
-              tone="neutral"
-            />
+          <View style={[styles.adGroup, compact ? styles.fullWidth : null]}>
+            <HeaderAdBanner textScale={textScale} theme={theme} />
+          </View>
 
+          <View style={[styles.utilityGroup, compact ? styles.utilityGroupCompact : null]}>
+            <View style={styles.statusDots}>
+              <StatusDotIndicator active={isBackendHealthy(backendStatus)} theme={theme} />
+              <StatusDotIndicator active={connected} theme={theme} />
+              <StatusDotIndicator active={isSessionHealthy(snapshot?.state)} theme={theme} />
+            </View>
             <Pressable
               accessibilityRole="button"
               disabled={closeDisabled}
@@ -108,42 +89,12 @@ export function AppShell({
   );
 }
 
-function formatBackendLabel(status: CartBackendStatus, strings: AppStrings) {
-  if (status === "connected") return "Connected";
-  if (status === "waiting") return "Waiting for list";
-  if (status === "active") return "Active session";
-  if (status === "offline") return strings.backendOffline;
-  return strings.backendChecking;
+function isBackendHealthy(status: CartBackendStatus) {
+  return status === "connected" || status === "waiting" || status === "active";
 }
 
-function StatusPill({
-  label,
-  textScale,
-  theme,
-  tone
-}: {
-  label: string;
-  textScale: number;
-  theme: ThemePalette;
-  tone: "accent" | "success" | "warning" | "error" | "neutral";
-}) {
-  const palette = tone === "success"
-    ? { main: theme.success, soft: theme.successSoft }
-    : tone === "warning"
-      ? { main: theme.warning, soft: theme.warningSoft }
-      : tone === "error"
-        ? { main: theme.error, soft: theme.errorSoft }
-        : tone === "neutral"
-          ? { main: theme.textSecondary, soft: theme.cardMuted }
-          : { main: theme.accent, soft: theme.accentSoft };
-
-  return (
-    <View style={[styles.pill, { backgroundColor: palette.soft }]}>
-      <Text style={[styles.pillText, { color: palette.main, fontSize: scaleSize(12, textScale) }]}>
-        {label}
-      </Text>
-    </View>
-  );
+function isSessionHealthy(state: CartSnapshot["state"] | undefined) {
+  return state === "SHOPPING" || state === "WAITING_PAYMENT" || state === "CHECKOUT_PENDING" || state === "PAID";
 }
 
 const styles = StyleSheet.create({
@@ -165,41 +116,45 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 16,
-    flexWrap: "wrap"
+    gap: 14
+  },
+  topBarCompact: {
+    flexDirection: "column",
+    alignItems: "stretch"
   },
   brandGroup: {
-    flexDirection: "row",
+    width: 150,
     alignItems: "flex-start",
-    gap: 12,
-    minWidth: 252
+    justifyContent: "center"
   },
-  brandCopy: {
-    gap: 4
+  adGroup: {
+    flex: 1,
+    alignItems: "stretch",
+    justifyContent: "center"
   },
-  subtitle: {
-    fontWeight: "700",
-    maxWidth: 260
+  fullWidth: {
+    width: "100%"
   },
-  summaryGroup: {
+  utilityGroup: {
+    minWidth: 126,
+    maxWidth: 160,
+    alignItems: "flex-end",
+    justifyContent: "center",
+    gap: 10
+  },
+  utilityGroupCompact: {
+    width: "100%",
+    maxWidth: undefined,
+    alignItems: "stretch"
+  },
+  statusDots: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "flex-end",
-    gap: 10,
-    flexWrap: "wrap",
-    flex: 1
-  },
-  pill: {
-    minHeight: 36,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    alignItems: "center",
-    justifyContent: "center"
-  },
-  pillText: {
-    fontWeight: "800"
+    gap: 7
   },
   closeButton: {
+    alignSelf: "flex-end",
     minHeight: 40,
     borderRadius: 14,
     borderWidth: 1,

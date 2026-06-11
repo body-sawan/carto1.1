@@ -26,11 +26,9 @@ export function CartScreen() {
   const connected = useCartUiStore((state) => state.connected);
   const language = useCartUiStore((state) => state.language);
   const sessionControlMode = useCartUiStore((state) => state.sessionControlMode);
-  const themeName = useCartUiStore((state) => state.theme);
-  const setTheme = useCartUiStore((state) => state.setTheme);
   const textSize = useCartUiStore((state) => state.textSize);
   const strings = getAppStrings(language);
-  const theme = getThemePalette(themeName);
+  const theme = getThemePalette();
   const textScale = getTextScale(textSize);
 
   const [stage, setStage] = useState<AppFlowStage>("welcome");
@@ -294,9 +292,7 @@ export function CartScreen() {
       <AppShell
         backendStatus={backendStatus}
         connected={connected}
-        language={language}
         onCloseSession={openCloseSessionConfirm}
-        sessionControlMode={sessionControlMode}
         snapshot={snapshot}
         strings={strings}
         textScale={textScale}
@@ -312,12 +308,10 @@ export function CartScreen() {
         cartCode={CART_CODE}
         connected={connected}
         onContinueWithoutList={() => void handleContinueWithoutList()}
-        onThemeChange={setTheme}
         snapshot={snapshot}
         strings={strings}
         textScale={textScale}
         theme={theme}
-        themeName={themeName}
       />
     );
   }
