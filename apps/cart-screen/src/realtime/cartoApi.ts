@@ -205,16 +205,21 @@ export async function fetchCartoQr(cartCode = CART_CODE, signal?: AbortSignal): 
     throw new Error("Cart code is missing. Set CART_CODE or EXPO_PUBLIC_CART_CODE.");
   }
 
-  const data = await requestCarto<CartoQrData>(`/api/carts/${encodeURIComponent(cartCode)}/qrcode`, {
+  const data = await requestCarto<CartoQrData>(`/api/carts/${encodeURIComponent(cartCode)}/qrcode?t=${Date.now()}`, {
+    cache: "no-store",
     method: "GET",
     signal
   });
 
-  if (!data?.qrValue) {
-    throw new Error("Failed to fetch QR code");
+  if (!data?.payload && !data?.qrValue) {
+    throw new Error("QR code is unavailable from backend.");
   }
 
-  return data;
+  return normalizeCartPairingQrData(data);
+}
+
+export async function getCartQrCode(cartCode = CART_CODE, signal?: AbortSignal) {
+  return fetchCartoQr(cartCode, signal);
 }
 
 export async function fetchCartoActiveSession(
@@ -245,7 +250,8 @@ export async function fetchCartoActiveSession(
     throw new Error("Cart code is missing. Set CART_CODE or EXPO_PUBLIC_CART_CODE.");
   }
 
-  const data = await requestCarto<unknown>(`/api/carts/${encodeURIComponent(cartCode)}/active-session`, {
+  const data = await requestCarto<unknown>(`/api/carts/${encodeURIComponent(cartCode)}/active-session?t=${Date.now()}`, {
+    cache: "no-store",
     method: "GET",
     signal
   });
@@ -395,8 +401,9 @@ export function buildOnlinePairingUrl(cartCode = CART_CODE) {
 }
 
 export function buildWaitingSnapshot(cartCode = CART_CODE, qrData?: CartoQrData | null): CartSnapshot {
-  const effectiveCartCode = qrData?.payload.cartCode || cartCode || "CART-001";
-  const qrPayload = qrData?.qrValue ?? (CARTO_INTEGRATION_MODE === "mock-online" ? buildOnlinePairingUrl(effectiveCartCode) : "");
+  const normalizedQrData = qrData ? normalizeCartPairingQrData(qrData) : null;
+  const effectiveCartCode = normalizedQrData?.payload.cartCode || cartCode || "CART-001";
+  const qrPayload = qrData ? buildCartPairingQrValue(qrData) : "";
 
   return {
     cartId: effectiveCartCode,
@@ -404,10 +411,10 @@ export function buildWaitingSnapshot(cartCode = CART_CODE, qrData?: CartoQrData 
     state: "WAITING_FOR_LIST",
     pairing: {
       cartId: effectiveCartCode,
-      pairingCode: qrData?.payload.pairingCode ?? "",
+      pairingCode: normalizedQrData?.payload.pairingCode ?? "",
       qrPayload,
       transport: "backend",
-      expiresAt: qrData?.expiresAt ?? undefined
+      expiresAt: normalizedQrData?.expiresAt ?? undefined
     },
     shoppingList: [],
     cartItems: [],
@@ -423,6 +430,50 @@ export function buildWaitingSnapshot(cartCode = CART_CODE, qrData?: CartoQrData 
     },
     alerts: []
   };
+}
+
+function normalizeCartPairingQrData(data: CartoQrData): CartoQrData {
+  const qrValue = buildCartPairingQrValue(data);
+  const parsed = JSON.parse(qrValue) as {
+    cartCode: string;
+    pairingCode: string;
+    type: "cart_pairing";
+  };
+
+  return {
+    ...data,
+    payload: {
+      type: "cart_pairing",
+      cartCode: parsed.cartCode,
+      pairingCode: parsed.pairingCode
+    },
+    qrValue
+  };
+}
+
+function buildCartPairingQrValue(data: CartoQrData): string {
+  const payload = data.payload;
+
+  let cartCode = payload?.cartCode;
+  let pairingCode = payload?.pairingCode;
+
+  if ((!cartCode || !pairingCode) && typeof data.qrValue === "string") {
+    try {
+      const parsed = JSON.parse(data.qrValue) as Partial<CartoQrData["payload"]>;
+      cartCode = cartCode ?? parsed?.cartCode;
+      pairingCode = pairingCode ?? parsed?.pairingCode;
+    } catch {}
+  }
+
+  if (!cartCode || !pairingCode) {
+    throw new Error("QR response missing cartCode or pairingCode");
+  }
+
+  return JSON.stringify({
+    type: "cart_pairing",
+    cartCode: String(cartCode),
+    pairingCode: String(pairingCode)
+  });
 }
 
 export function mapActiveSessionToSnapshot(data: CartoActiveSessionData, previousSnapshot: CartSnapshot | null): CartSnapshot {
@@ -751,13 +802,15 @@ function ensureCartCode() {
 }
 
 function buildMockQrData(cartCode: string): CartoQrData {
+  const payload = {
+    type: "cart_pairing" as const,
+    cartCode,
+    pairingCode: "MOCK-PAIR"
+  };
+
   return {
     expiresAt: new Date(Date.now() + MOCK_QR_EXPIRES_AT_MS).toISOString(),
-    payload: {
-      cartCode,
-      pairingCode: "MOCK-PAIR",
-      type: "cart_pairing"
-    },
-    qrValue: buildOnlinePairingUrl(cartCode)
+    payload,
+    qrValue: JSON.stringify(payload)
   };
 }

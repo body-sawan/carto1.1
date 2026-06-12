@@ -4,13 +4,17 @@ import type { ThemePalette } from "../ui/appUi";
 import { scaleSize } from "../ui/appUi";
 
 interface PromoAdCardProps {
-  ad: DummyAd;
+  ad: DummyAd | null;
   mode: "header" | "cart";
   textScale: number;
   theme: ThemePalette;
 }
 
 export function PromoAdCard({ ad, mode, textScale, theme }: PromoAdCardProps) {
+  if (!ad) {
+    return null;
+  }
+
   const palette = getAccentPalette(ad.accent, theme);
   const backgroundColor = getBackgroundColor(ad.background, theme);
   const imageSize = mode === "header" ? 58 : 54;

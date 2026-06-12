@@ -13,7 +13,7 @@ import { WelcomeScreen } from "../components/WelcomeScreen";
 import { CART_CODE } from "../realtime/config";
 import { useCartRuntime } from "../realtime/useCartRuntime";
 import { useCartUiStore } from "../store/cartUiStore";
-import { FIXED_THEME_NAME, getAppStrings, getTextScale, getThemePalette, scaleSize } from "../ui/appUi";
+import { getAppStrings, getTextScale, getThemePalette, scaleSize } from "../ui/appUi";
 
 type AppFlowStage = "welcome" | "transition" | "shopping" | "receipt";
 
@@ -28,11 +28,7 @@ export function CartScreen() {
   const sessionControlMode = useCartUiStore((state) => state.sessionControlMode);
   const textSize = useCartUiStore((state) => state.textSize);
   const strings = getAppStrings(language);
-<<<<<<< HEAD
-  const theme = getThemePalette(FIXED_THEME_NAME);
-=======
   const theme = getThemePalette();
->>>>>>> save-detached-work
   const textScale = getTextScale(textSize);
 
   const [stage, setStage] = useState<AppFlowStage>("welcome");
@@ -312,6 +308,7 @@ export function CartScreen() {
         cartCode={CART_CODE}
         connected={connected}
         onContinueWithoutList={() => void handleContinueWithoutList()}
+        onRefreshQr={() => void runRuntimeAction(runtime.refreshQr, "Refresh QR")}
         snapshot={snapshot}
         strings={strings}
         textScale={textScale}

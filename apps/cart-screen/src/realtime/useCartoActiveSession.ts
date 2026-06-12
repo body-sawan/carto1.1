@@ -2,13 +2,13 @@ import type { CartSnapshot } from "@carto/shared";
 import { useEffect, useRef } from "react";
 import { useCartUiStore } from "../store/cartUiStore";
 import { CART_CODE } from "./config";
-import { buildWaitingSnapshot, fetchCartoQr, getActiveSession, mapActiveSessionToSnapshot } from "./cartoApi";
+import { buildWaitingSnapshot, getActiveSession, getCartQrCode, mapActiveSessionToSnapshot } from "./cartoApi";
 
 const WAITING_POLL_INTERVAL_MS = 2000;
 const ACTIVE_POLL_INTERVAL_MS = 5000;
 const ERROR_RETRY_INTERVAL_MS = 5000;
-const QR_REFRESH_FALLBACK_INTERVAL_MS = 60000;
-const QR_REFRESH_EARLY_BUFFER_MS = 5000;
+const QR_REFRESH_FALLBACK_INTERVAL_MS = 45000;
+const QR_REFRESH_EARLY_BUFFER_MS = 10000;
 
 export function useCartoActiveSession(enabled: boolean) {
   const sessionControlMode = useCartUiStore((state) => state.sessionControlMode);
@@ -99,8 +99,10 @@ export function useCartoActiveSession(enabled: boolean) {
     const controller = new AbortController();
     qrRequestControllerRef.current = controller;
 
+    setSnapshot(buildWaitingSnapshot(effectiveCartCode));
+
     try {
-      const qrData = await fetchCartoQr(effectiveCartCode, controller.signal);
+      const qrData = await getCartQrCode(effectiveCartCode, controller.signal);
       if (!mountedRef.current || isSessionActive(useCartUiStore.getState().snapshot)) {
         return;
       }

@@ -12,8 +12,13 @@ interface HeaderAdBannerProps {
 export function HeaderAdBanner({ textScale, theme }: HeaderAdBannerProps) {
   const [activeIndex, setActiveIndex] = useState(0);
   const opacity = useRef(new Animated.Value(1)).current;
+  const hasAds = HEADER_DUMMY_ADS.length > 0;
 
   useEffect(() => {
+    if (!hasAds) {
+      return undefined;
+    }
+
     const intervalId = setInterval(() => {
       Animated.timing(opacity, {
         toValue: 0,
@@ -33,16 +38,20 @@ export function HeaderAdBanner({ textScale, theme }: HeaderAdBannerProps) {
     }, 4200);
 
     return () => clearInterval(intervalId);
-  }, [opacity]);
+  }, [hasAds, opacity]);
 
-  const activeAd = HEADER_DUMMY_ADS[activeIndex];
+  const activeAd = hasAds ? HEADER_DUMMY_ADS[activeIndex % HEADER_DUMMY_ADS.length] : null;
 
   return (
     <Animated.View style={[styles.root, { opacity }]}>
-      <PromoAdCard ad={activeAd} mode="header" textScale={textScale} theme={theme} />
-      <View style={[styles.metaPill, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-        <Text style={[styles.metaPillText, { color: theme.textMuted }]}>Demo promo</Text>
-      </View>
+      {activeAd ? (
+        <>
+          <PromoAdCard ad={activeAd} mode="header" textScale={textScale} theme={theme} />
+          <View style={[styles.metaPill, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <Text style={[styles.metaPillText, { color: theme.textMuted }]}>Demo promo</Text>
+          </View>
+        </>
+      ) : null}
     </Animated.View>
   );
 }

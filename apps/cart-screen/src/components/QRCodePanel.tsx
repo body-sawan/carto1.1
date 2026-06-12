@@ -22,9 +22,15 @@ export function QRCodePanel({ connected, snapshot, onStartShopping }: QRCodePane
       </View>
       <View style={styles.qrBox}>
         {qrValue
-          ? <QRCode value={qrValue} size={236} />
+          ? <QRCode key={qrValue} value={qrValue} size={236} />
           : <Text style={styles.loading}>{isCartoMode ? (cartCode ? "QR unavailable. Check backend connection." : "Set CART_CODE to generate the online QR.") : "Starting pairing..."}</Text>}
       </View>
+      {qrValue ? (
+        <View style={styles.payloadBlock}>
+          <Text style={styles.payloadLabel}>QR Payload:</Text>
+          <Text style={styles.payloadValue}>{qrValue}</Text>
+        </View>
+      ) : null}
       <Text style={styles.orText}>or</Text>
       <Pressable
         accessibilityRole="button"
@@ -87,6 +93,9 @@ const styles = StyleSheet.create({
     borderColor: "#e2e8f0"
   },
   loading: { color: "#64748b", fontWeight: "700" },
+  payloadBlock: { width: "100%", alignItems: "center", gap: 4 },
+  payloadLabel: { fontSize: 11, fontWeight: "900", color: "#64748b", textTransform: "uppercase" },
+  payloadValue: { fontSize: 12, lineHeight: 18, color: "#475569", textAlign: "center" },
   orText: { marginTop: -8, marginBottom: -8, color: "#64748b", fontSize: 13, fontWeight: "900", textTransform: "uppercase" },
   startButton: {
     width: "100%",

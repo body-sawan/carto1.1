@@ -6,6 +6,7 @@ import {
   buildWaitingSnapshot,
   checkoutCarto,
   closeCartoSession,
+  getCartQrCode,
   removeCartoItem,
   resetMockOnlineSession
 } from "./cartoApi";
@@ -26,6 +27,7 @@ import { useCartSocket } from "./useCartSocket";
 type RuntimeActions = {
   cancelCheckout: () => Promise<void>;
   confirmPayment: () => Promise<void>;
+  refreshQr: () => Promise<void>;
   removeItem: (productId: string, quantity?: number) => Promise<void>;
   resetSession: () => Promise<void>;
   retryPayment: () => Promise<void>;
@@ -78,6 +80,7 @@ export function useCartRuntime(): RuntimeActions {
       return {
         cancelCheckout: async () => edgeSocket.cancelCheckout(),
         confirmPayment: async () => edgeSocket.confirmPayment(),
+        refreshQr: async () => undefined,
         removeItem: async () => undefined,
         resetSession: async () => edgeSocket.resetSession(),
         retryPayment: async () => edgeSocket.retryPayment(),
@@ -101,6 +104,25 @@ export function useCartRuntime(): RuntimeActions {
           throw new Error("Payment confirmation is only available in local guest mode right now.");
         }
         confirmLocalGuestPayment();
+      },
+      refreshQr: async () => {
+        if (isLocalGuest) {
+          return;
+        }
+
+        const cartCode = snapshotRef.current?.pairing?.cartId || snapshotRef.current?.cartId;
+        if (!cartCode && legacyMode !== "mock-online") {
+          throw new Error("Cart code is missing. Unable to refresh QR.");
+        }
+
+        const effectiveCartCode = cartCode || "CART-001";
+        setConnected(true);
+        setBackendStatus("waiting");
+        setSessionControlMode("full");
+        setSnapshot(buildWaitingSnapshot(effectiveCartCode));
+
+        const qrData = await getCartQrCode(effectiveCartCode);
+        setSnapshot(buildWaitingSnapshot(effectiveCartCode, qrData));
       },
       removeItem: async (productId, quantity = 1) => {
         if (isLocalGuest) {
@@ -134,9 +156,17 @@ export function useCartRuntime(): RuntimeActions {
         }
 
         const hasBackendSession = Boolean(snapshotRef.current?.sessionId && snapshotRef.current?.state !== "WAITING_FOR_LIST");
-        const waitingSnapshot = hasBackendSession || legacyMode === "mock-online"
+        let waitingSnapshot = hasBackendSession || legacyMode === "mock-online"
           ? await closeCartoSession()
           : buildWaitingSnapshot(snapshotRef.current?.cartId);
+
+        if (!hasBackendSession && legacyMode !== "mock-online") {
+          const effectiveCartCode = snapshotRef.current?.pairing?.cartId || snapshotRef.current?.cartId;
+          if (effectiveCartCode) {
+            const qrData = await getCartQrCode(effectiveCartCode);
+            waitingSnapshot = buildWaitingSnapshot(effectiveCartCode, qrData);
+          }
+        }
 
         resetMockOnlineSession();
         setConnected(true);

@@ -12,10 +12,32 @@ interface WelcomeScreenProps {
   cartCode: string;
   connected: boolean;
   onContinueWithoutList: () => void;
+  onRefreshQr?: () => void;
   snapshot: CartSnapshot | null;
   strings: AppStrings;
   textScale: number;
   theme: ThemePalette;
+}
+
+function ensureCartPairingQrValue(rawValue: string): string {
+  try {
+    const parsed = JSON.parse(rawValue);
+
+    const cartCode = parsed?.cartCode ?? parsed?.cartId;
+    const pairingCode = parsed?.pairingCode;
+
+    if (!cartCode || !pairingCode) {
+      return rawValue;
+    }
+
+    return JSON.stringify({
+      type: "cart_pairing",
+      cartCode: String(cartCode),
+      pairingCode: String(pairingCode),
+    });
+  } catch {
+    return rawValue;
+  }
 }
 
 export function WelcomeScreen({
@@ -23,6 +45,7 @@ export function WelcomeScreen({
   cartCode,
   connected,
   onContinueWithoutList,
+  onRefreshQr,
   snapshot,
   strings,
   textScale,
@@ -35,6 +58,7 @@ export function WelcomeScreen({
   const isCartoMode = backendMode === "carto";
   const cartCodeLabel = cartCode || pairing?.cartId || "";
   const qrValue = pairing?.qrPayload ?? "";
+  const finalQrValue = ensureCartPairingQrValue(qrValue);
   const pairingStatusLabel = getPairingStatusLabel(backendStatus, strings);
   const continueDisabled = !connected;
 
@@ -87,8 +111,8 @@ export function WelcomeScreen({
         </Text>
 
         <View style={[styles.qrFrame, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          {qrValue ? (
-            <QRCode value={qrValue} size={compact ? 210 : 260} />
+          {finalQrValue ? (
+            <QRCode key={finalQrValue} value={finalQrValue} size={compact ? 210 : 260} />
           ) : (
             isCartoMode ? (
               <View style={styles.warningBlock}>
@@ -97,7 +121,7 @@ export function WelcomeScreen({
                 </Text>
                 <Text style={[styles.qrFallback, { color: theme.textMuted, fontSize: scaleSize(14, textScale) }]}>
                   {cartCodeLabel
-                    ? "The Mazen backend QR is not available right now. Check the backend connection and try again."
+                    ? "Backend QR is unavailable. Refresh to try again."
                     : "Set `CART_CODE` or `EXPO_PUBLIC_CART_CODE` to generate the online pairing QR."}
                 </Text>
               </View>
@@ -108,6 +132,38 @@ export function WelcomeScreen({
             )
           )}
         </View>
+
+        {finalQrValue ? (
+          <View style={styles.debugBlock}>
+            <Text style={[styles.debugLabel, { color: theme.textMuted, fontSize: scaleSize(11, textScale) }]}>
+              QR Payload:
+            </Text>
+            <Text style={[styles.debugValue, { color: theme.textSecondary, fontSize: scaleSize(12, textScale) }]}>
+              {finalQrValue}
+            </Text>
+          </View>
+        ) : null}
+
+        {isCartoMode ? (
+          <Pressable
+            accessibilityRole="button"
+            disabled={!connected}
+            onPress={onRefreshQr}
+            style={({ pressed }) => [
+              styles.refreshButton,
+              {
+                backgroundColor: theme.card,
+                borderColor: theme.border,
+                opacity: connected ? 1 : 0.6,
+                transform: [{ scale: pressed && connected ? 0.98 : 1 }]
+              }
+            ]}
+          >
+            <Text style={[styles.refreshButtonText, { color: theme.textPrimary, fontSize: scaleSize(14, textScale) }]}>
+              Refresh QR
+            </Text>
+          </Pressable>
+        ) : null}
 
         {pairing?.pairingCode ? (
           <View style={styles.codeBlock}>
@@ -271,6 +327,20 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     padding: 20
   },
+  debugBlock: {
+    width: "100%",
+    maxWidth: 560,
+    gap: 6,
+    alignItems: "center"
+  },
+  debugLabel: {
+    fontWeight: "900",
+    textTransform: "uppercase"
+  },
+  debugValue: {
+    textAlign: "center",
+    lineHeight: 18
+  },
   qrFallback: {
     fontWeight: "700",
     textAlign: "center"
@@ -282,6 +352,17 @@ const styles = StyleSheet.create({
   warningTitle: {
     fontWeight: "900",
     textAlign: "center"
+  },
+  refreshButton: {
+    minHeight: 44,
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingHorizontal: 18,
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  refreshButtonText: {
+    fontWeight: "900"
   },
   codeBlock: {
     alignItems: "center",

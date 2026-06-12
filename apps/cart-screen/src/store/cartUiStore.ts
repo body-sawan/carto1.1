@@ -5,10 +5,6 @@ export type { CartSnapshot } from "@carto/shared";
 
 export type TabletTab = "home" | "scan" | "cart" | "map" | "checkout" | "settings";
 export type UiLanguage = "en" | "ar";
-<<<<<<< HEAD
-export type UiThemeName = "carto_blur_green";
-=======
->>>>>>> save-detached-work
 export type UiTextSize = "normal" | "large";
 export type UiScanMode = "auto" | "manual";
 export type IntegrationMode = "local-edge" | "online-api" | "mock-online";

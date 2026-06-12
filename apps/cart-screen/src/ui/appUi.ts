@@ -361,15 +361,8 @@ const arabic: AppStrings = {
   pairingReady: "جاهز للربط"
 };
 
-<<<<<<< HEAD
-export const FIXED_THEME_NAME: UiThemeName = "carto_blur_green";
-
-export function getThemePalette(_theme?: UiThemeName) {
-  return cartoBlurGreenTheme;
-=======
 export function getThemePalette() {
-  return cartoBlueGreenTheme;
->>>>>>> save-detached-work
+  return cartoBlurGreenTheme;
 }
 
 export function getAppStrings(language: UiLanguage) {
