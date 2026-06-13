@@ -25,11 +25,16 @@ export function CartScreen() {
   const snapshot = useCartUiStore((state) => state.snapshot);
   const connected = useCartUiStore((state) => state.connected);
   const language = useCartUiStore((state) => state.language);
+  const listStatus = useCartUiStore((state) => state.listStatus);
+  const receivedItemCount = useCartUiStore((state) => state.receivedItemCount);
   const sessionControlMode = useCartUiStore((state) => state.sessionControlMode);
   const textSize = useCartUiStore((state) => state.textSize);
   const strings = getAppStrings(language);
   const theme = getThemePalette();
   const textScale = getTextScale(textSize);
+  const effectiveListStatus = backendStatus === "waiting" && listStatus === "checking"
+    ? "waiting"
+    : listStatus;
 
   const [stage, setStage] = useState<AppFlowStage>("welcome");
   const [isCloseConfirmOpen, setIsCloseConfirmOpen] = useState(false);
@@ -251,7 +256,11 @@ export function CartScreen() {
       <HomeScreen
         connected={connected}
         language={language}
+        listStatus={effectiveListStatus}
         onCheckout={() => setStage("receipt")}
+        onRetryListStatus={() => void runRuntimeAction(runtime.retryListStatus, strings.retry)}
+        receivedItemCount={receivedItemCount}
+        showDeliveryStatus={sessionControlMode !== "local_guest"}
         snapshot={snapshot}
         strings={strings}
         textScale={textScale}
@@ -307,8 +316,11 @@ export function CartScreen() {
         backendStatus={backendStatus}
         cartCode={CART_CODE}
         connected={connected}
+        listStatus={effectiveListStatus}
         onContinueWithoutList={() => void handleContinueWithoutList()}
         onRefreshQr={() => void runRuntimeAction(runtime.refreshQr, "Refresh QR")}
+        onRetryListStatus={() => void runRuntimeAction(runtime.retryListStatus, strings.retry)}
+        receivedItemCount={receivedItemCount}
         snapshot={snapshot}
         strings={strings}
         textScale={textScale}

@@ -124,6 +124,19 @@ export interface AppStrings {
   productQuantityUpdated: string;
   productRemoved: string;
   shoppingListHint: string;
+  listDeliveryTitle: string;
+  listWaitingForPairing: string;
+  listChecking: string;
+  listReceived: string;
+  listFailed: string;
+  listOffline: string;
+  listFetchingQr: string;
+  listRefreshingQr: string;
+  listAuthError: string;
+  listCartNotFound: string;
+  listCorsError: string;
+  retry: string;
+  itemsLabel: string;
   qrLoading: string;
   pairingReady: string;
 }
@@ -251,6 +264,19 @@ const english: AppStrings = {
   productQuantityUpdated: "Quantity updated",
   productRemoved: "Removed from cart",
   shoppingListHint: "The list sent from the website will appear here.",
+  listDeliveryTitle: "Shopping list delivery",
+  listWaitingForPairing: "Waiting for customer pairing...",
+  listChecking: "Checking for shopping list...",
+  listReceived: "List received",
+  listFailed: "Failed to load list",
+  listOffline: "Network error / reconnecting...",
+  listFetchingQr: "Fetching QR...",
+  listRefreshingQr: "Refreshing QR...",
+  listAuthError: "Device secret is wrong or missing.",
+  listCartNotFound: "Cart not found. Check cart code is cart-01 and production database has this cart.",
+  listCorsError: "Browser blocked the backend request. Check CORS for this app origin and the Authorization header.",
+  retry: "Retry",
+  itemsLabel: "items",
   qrLoading: "Preparing QR pairing",
   pairingReady: "Ready to pair"
 };
@@ -357,6 +383,19 @@ const arabic: AppStrings = {
   productQuantityUpdated: "تم تحديث الكمية",
   productRemoved: "تمت الإزالة من السلة",
   shoppingListHint: "ستظهر هنا القائمة المرسلة من الموقع.",
+  listDeliveryTitle: "حالة وصول القائمة",
+  listWaitingForPairing: "في انتظار اقتران العميل...",
+  listChecking: "جارٍ التحقق من قائمة التسوق...",
+  listReceived: "تم استلام القائمة",
+  listFailed: "تعذر تحميل القائمة",
+  listOffline: "خطأ في الشبكة / جارٍ إعادة الاتصال...",
+  listFetchingQr: "جارٍ جلب رمز QR...",
+  listRefreshingQr: "جارٍ تحديث رمز QR...",
+  listAuthError: "سر الجهاز غير صحيح أو مفقود.",
+  listCartNotFound: "العربة غير موجودة. تأكد أن رمز العربة هو cart-01 وأن قاعدة البيانات الإنتاجية تحتوي عليها.",
+  listCorsError: "المتصفح حجب طلب الخلفية. تحقق من إعدادات CORS لأصل هذا التطبيق وترويسة Authorization.",
+  retry: "إعادة المحاولة",
+  itemsLabel: "عناصر",
   qrLoading: "جارٍ تجهيز رمز الربط",
   pairingReady: "جاهز للربط"
 };

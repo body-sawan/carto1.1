@@ -1,5 +1,5 @@
 import type { CartSnapshot, PaymentStatus, ReceiptLine, ShoppingListItem, ShoppingListItemStatus } from "@carto/shared";
-import { CARTO_API_BASE_URL, CARTO_INTEGRATION_MODE, CARTO_WEB_BASE_URL, CART_CODE, DEVICE_SECRET } from "./config";
+import { CARTO_API_BASE_URL, CARTO_WEB_BASE_URL, CART_CODE, DEVICE_SECRET } from "./config";
 import { findCatalogProductById, getRegisteredCatalogProducts, normalizeRemoteProduct, registerCatalogProducts } from "./cartCatalog";
 
 interface ApiErrorShape {
@@ -14,9 +14,16 @@ interface ApiEnvelope<T> {
   error?: ApiErrorShape;
 }
 
+interface CartoResponseInfo {
+  payload: unknown;
+  status: number;
+  url: string;
+}
+
 export interface CartApiResult<T> {
   data: T;
   error?: string;
+  errorKind?: "auth" | "cart_not_found" | "cors" | "network" | "response";
   ok: boolean;
 }
 
@@ -127,37 +134,23 @@ interface CartoProductRecord {
   price?: number | null;
 }
 
-const MOCK_WAIT_MS = 4500;
-const MOCK_QR_EXPIRES_AT_MS = 5 * 60 * 1000;
-const MOCK_ACTIVE_SESSION: CartoActiveSessionData = {
-  active: true,
-  cartCode: "CART-001",
-  cartItems: [],
-  cartSessionId: "MOCK-CARTSESSION-001",
-  cartStatus: "IN_USE",
-  paymentStatus: null,
-  receiptId: "MOCK-RECEIPT-001",
-  sessionId: "MOCK-SESSION-001",
-  shoppingList: {
-    id: "MOCK-LIST-001",
-    name: "Mock list",
-    items: [
-      { productId: "milk", name: "Milk", quantity: 1, checked: false },
-      { productId: "bread", name: "Bread", quantity: 2, checked: false },
-      { productId: "cola", name: "Coca Cola", quantity: 1, checked: false }
-    ]
-  },
-  status: "active",
-  total: 0
-};
-
-let mockOnlineStartedAt = 0;
+class CartoRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code: string | null,
+    readonly payload: unknown
+  ) {
+    super(message);
+    this.name = "CartoRequestError";
+  }
+}
 
 export async function requestCarto<T>(
   path: string,
-  options: (RequestInit & { auth?: boolean }) = {}
+  options: (RequestInit & { auth?: boolean; onResponse?: (info: CartoResponseInfo) => void }) = {}
 ): Promise<T> {
-  const { auth = true, headers, ...requestInit } = options;
+  const { auth = true, headers, onResponse, ...requestInit } = options;
   const url = buildAbsoluteUrl(path);
   const requestHeaders = new Headers(headers ?? {});
 
@@ -178,15 +171,16 @@ export async function requestCarto<T>(
   });
 
   const payload = await parseJsonSafely(response);
+  onResponse?.({ payload, status: response.status, url });
 
   if (!response.ok) {
-    throw new Error(readApiError(payload, response.status));
+    throw new CartoRequestError(readApiError(payload, response.status), response.status, readApiErrorCode(payload), payload);
   }
 
   if (payload && typeof payload === "object" && "success" in payload) {
     const envelope = payload as ApiEnvelope<T>;
     if (envelope.success === false) {
-      throw new Error(readApiError(envelope, response.status));
+      throw new CartoRequestError(readApiError(envelope, response.status), response.status, readApiErrorCode(envelope), envelope);
     }
     if (envelope.success === true) {
       return envelope.data as T;
@@ -197,17 +191,20 @@ export async function requestCarto<T>(
 }
 
 export async function fetchCartoQr(cartCode = CART_CODE, signal?: AbortSignal): Promise<CartoQrData> {
-  if (CARTO_INTEGRATION_MODE === "mock-online") {
-    return buildMockQrData(cartCode || MOCK_ACTIVE_SESSION.cartCode);
-  }
-
   if (!cartCode) {
     throw new Error("Cart code is missing. Set CART_CODE or EXPO_PUBLIC_CART_CODE.");
   }
 
-  const data = await requestCarto<CartoQrData>(`/api/carts/${encodeURIComponent(cartCode)}/qrcode?t=${Date.now()}`, {
+  const requestPath = `/api/carts/${encodeURIComponent(cartCode)}/qrcode?t=${Date.now()}`;
+  console.log("[cart-screen] QR fetch URL", buildAbsoluteUrl(requestPath));
+
+  const data = await requestCarto<CartoQrData>(requestPath, {
     cache: "no-store",
     method: "GET",
+    onResponse: ({ payload, status }) => {
+      console.log("[cart-screen] QR fetch status code", status);
+      console.log("[cart-screen] QR response payload", payload);
+    },
     signal
   });
 
@@ -215,7 +212,10 @@ export async function fetchCartoQr(cartCode = CART_CODE, signal?: AbortSignal): 
     throw new Error("QR code is unavailable from backend.");
   }
 
-  return normalizeCartPairingQrData(data);
+  const normalized = normalizeCartPairingQrData(data);
+  console.log("[cart-screen] qrValue displayed", normalized.qrValue);
+  console.log("[cart-screen] expiresAt", normalized.expiresAt ?? null);
+  return normalized;
 }
 
 export async function getCartQrCode(cartCode = CART_CODE, signal?: AbortSignal) {
@@ -226,37 +226,29 @@ export async function fetchCartoActiveSession(
   cartCode = CART_CODE,
   signal?: AbortSignal
 ): Promise<CartoActiveSessionResponse> {
-  if (CARTO_INTEGRATION_MODE === "mock-online") {
-    if (!mockOnlineStartedAt) {
-      mockOnlineStartedAt = Date.now();
-    }
-
-    if ((Date.now() - mockOnlineStartedAt) < MOCK_WAIT_MS) {
-      return {
-        active: false,
-        cartCode: cartCode || MOCK_ACTIVE_SESSION.cartCode,
-        cartStatus: "READY",
-        status: "waiting"
-      };
-    }
-
-    return {
-      ...MOCK_ACTIVE_SESSION,
-      cartCode: cartCode || MOCK_ACTIVE_SESSION.cartCode
-    };
-  }
-
   if (!cartCode) {
     throw new Error("Cart code is missing. Set CART_CODE or EXPO_PUBLIC_CART_CODE.");
   }
 
-  const data = await requestCarto<unknown>(`/api/carts/${encodeURIComponent(cartCode)}/active-session?t=${Date.now()}`, {
+  const requestPath = `/api/carts/${encodeURIComponent(cartCode)}/active-session?t=${Date.now()}`;
+  console.log("[cart-screen] active-session poll URL", buildAbsoluteUrl(requestPath));
+
+  const data = await requestCarto<unknown>(requestPath, {
     cache: "no-store",
     method: "GET",
+    onResponse: ({ payload, status }) => {
+      console.log("[cart-screen] active-session status code", status);
+      console.log("[cart-screen] active-session response", payload);
+    },
     signal
   });
 
-  return normalizeActiveSessionResponse(data, cartCode);
+  const normalized = normalizeActiveSessionResponse(data, cartCode);
+  const listContainer = normalized.status === "active" ? (normalized.shoppingList ?? normalized.list ?? null) : null;
+  const itemCount = Array.isArray(listContainer?.items) ? listContainer.items.length : 0;
+  console.log("[cart-screen] active true/false", normalized.status === "active");
+  console.log("[cart-screen] shoppingList item count", itemCount);
+  return normalized;
 }
 
 export async function getActiveSession(
@@ -272,10 +264,11 @@ export async function getActiveSession(
       ok: false,
       data: {
         active: false,
-        cartCode: cartCode || "CART-001",
+        cartCode: cartCode || "cart-01",
         status: "waiting"
       },
-      error: error instanceof Error ? error.message : "Backend unavailable."
+      error: error instanceof Error ? error.message : "Backend unavailable.",
+      errorKind: getCartoErrorKind(error)
     };
   }
 }
@@ -325,9 +318,15 @@ export async function checkoutCarto(previousSnapshot: CartSnapshot | null): Prom
 
 export async function closeCartoSession(): Promise<CartSnapshot> {
   const cartCode = ensureCartCode();
-  await requestCarto<CartoCheckoutData>(`/api/carts/${encodeURIComponent(cartCode)}/close-session`, {
-    body: JSON.stringify({}),
-    method: "POST"
+  const requestPath = `/api/carts/${encodeURIComponent(cartCode)}/disconnect`;
+  console.log("[cart-screen] disconnect request URL", buildAbsoluteUrl(requestPath));
+
+  await requestCarto<{ activeSessionReleased?: boolean; cartCode?: string; cartStatus?: string }>(requestPath, {
+    method: "POST",
+    onResponse: ({ payload, status }) => {
+      console.log("[cart-screen] disconnect request status", status);
+      console.log("[cart-screen] disconnect response", payload);
+    }
   });
 
   let qrData: CartoQrData | null = null;
@@ -373,10 +372,6 @@ export async function closeCartSession(
 }
 
 export async function fetchCartoCatalog(signal?: AbortSignal) {
-  if (CARTO_INTEGRATION_MODE === "mock-online") {
-    return getRegisteredCatalogProducts();
-  }
-
   try {
     const data = await requestCarto<CartoProductRecord[]>("/api/products", {
       method: "GET",
@@ -402,8 +397,8 @@ export function buildOnlinePairingUrl(cartCode = CART_CODE) {
 
 export function buildWaitingSnapshot(cartCode = CART_CODE, qrData?: CartoQrData | null): CartSnapshot {
   const normalizedQrData = qrData ? normalizeCartPairingQrData(qrData) : null;
-  const effectiveCartCode = normalizedQrData?.payload.cartCode || cartCode || "CART-001";
-  const qrPayload = qrData ? buildCartPairingQrValue(qrData) : "";
+  const effectiveCartCode = normalizedQrData?.payload.cartCode || cartCode || "cart-01";
+  const qrPayload = normalizedQrData?.qrValue ?? "";
 
   return {
     cartId: effectiveCartCode,
@@ -433,7 +428,9 @@ export function buildWaitingSnapshot(cartCode = CART_CODE, qrData?: CartoQrData 
 }
 
 function normalizeCartPairingQrData(data: CartoQrData): CartoQrData {
-  const qrValue = buildCartPairingQrValue(data);
+  const qrValue = typeof data.qrValue === "string" && data.qrValue.length > 0
+    ? data.qrValue
+    : buildCartPairingQrValue(data);
   const parsed = JSON.parse(qrValue) as {
     cartCode: string;
     pairingCode: string;
@@ -525,7 +522,7 @@ export function mapCheckoutResponseToSnapshot(data: CartoCheckoutData, previousS
   const paymentStatus = mapPaymentStatus(data.paymentStatus, total, existingCartItems.length);
 
   return {
-    cartId: data.cartCode || previousSnapshot?.cartId || CART_CODE || "CART-001",
+    cartId: data.cartCode || previousSnapshot?.cartId || CART_CODE || "cart-01",
     sessionId: previousSnapshot?.sessionId ?? null,
     state: paymentStatus === "PAID" ? "PAID" : mapSnapshotState(paymentStatus),
     pairing: previousSnapshot?.pairing ?? null,
@@ -550,7 +547,7 @@ export function mapCheckoutResponseToSnapshot(data: CartoCheckoutData, previousS
 }
 
 export function resetMockOnlineSession() {
-  mockOnlineStartedAt = 0;
+  // The device app always uses the backend as the source of truth now.
 }
 
 function normalizeActiveSessionResponse(
@@ -580,7 +577,7 @@ function normalizeActiveSessionResponse(
       receiptId: typeof data.receiptId === "string" || data.receiptId === null ? data.receiptId as string | null : null,
       session: asMaybeSession(data.session),
       sessionId: String(data.sessionId ?? ""),
-      shoppingList: shoppingList.fromShoppingList,
+      shoppingList: shoppingList.fromShoppingList ?? shoppingList.fromList,
       status: "active",
       total: safeNumber(data.total)
     };
@@ -725,10 +722,61 @@ function readApiError(payload: unknown, status: number) {
   return message ?? `HTTP ${status}`;
 }
 
+function readApiErrorCode(payload: unknown) {
+  const record = asRecord(payload);
+  if (!record) {
+    return null;
+  }
+
+  const errorRecord = asRecord(record.error) ?? record;
+  return normalizeOptionalString(errorRecord.code);
+}
+
 function readShoppingListContainer(data: Record<string, unknown>) {
   const fromShoppingList = asMaybeShoppingList(data.shoppingList);
   const fromList = asMaybeShoppingList(data.list);
   return { fromList, fromShoppingList };
+}
+
+export function getCartoErrorKind(error: unknown): "auth" | "cart_not_found" | "cors" | "network" | "response" {
+  if (error instanceof CartoRequestError) {
+    if (error.code === "CART_NOT_FOUND") {
+      return "cart_not_found";
+    }
+
+    if (
+      error.code === "DEVICE_SECRET_REQUIRED"
+      || error.code === "INVALID_DEVICE_SECRET"
+      || error.status === 401
+      || error.status === 403
+    ) {
+      return "auth";
+    }
+  }
+
+  const message = error instanceof Error ? error.message.toLowerCase() : "";
+  if (
+    isBrowserRuntime()
+    && (message.includes("failed to fetch") || message.includes("network request failed") || message.includes("load failed"))
+  ) {
+    return "cors";
+  }
+
+  if (
+    message.includes("network request failed")
+    || message.includes("failed to fetch")
+    || message.includes("load failed")
+    || message.includes("fetch failed")
+    || message.includes("backend unavailable")
+  ) {
+    return "network";
+  }
+
+  return "response";
+}
+
+function isBrowserRuntime() {
+  return typeof window !== "undefined" && typeof document !== "undefined";
 }
 
 function asMaybeShoppingList(value: unknown) {
@@ -799,18 +847,4 @@ function ensureCartCode() {
   }
 
   return CART_CODE;
-}
-
-function buildMockQrData(cartCode: string): CartoQrData {
-  const payload = {
-    type: "cart_pairing" as const,
-    cartCode,
-    pairingCode: "MOCK-PAIR"
-  };
-
-  return {
-    expiresAt: new Date(Date.now() + MOCK_QR_EXPIRES_AT_MS).toISOString(),
-    payload,
-    qrValue: JSON.stringify(payload)
-  };
 }

@@ -1,5 +1,5 @@
 import { StyleSheet, View, useWindowDimensions } from "react-native";
-import type { CartSnapshot, UiLanguage } from "../store/cartUiStore";
+import type { CartSnapshot, ListDeliveryStatus, UiLanguage } from "../store/cartUiStore";
 import type { AppStrings, ThemePalette } from "../ui/appUi";
 import { CartItemsPanel } from "./CartItemsPanel";
 import { RevealView } from "./RevealView";
@@ -9,7 +9,11 @@ import { StaticMapViewer } from "./StaticMapViewer";
 interface HomeScreenProps {
   connected: boolean;
   language: UiLanguage;
+  listStatus: ListDeliveryStatus;
   onCheckout: () => void;
+  onRetryListStatus?: () => void;
+  receivedItemCount: number;
+  showDeliveryStatus?: boolean;
   snapshot: CartSnapshot | null;
   strings: AppStrings;
   textScale: number;
@@ -19,7 +23,11 @@ interface HomeScreenProps {
 export function HomeScreen({
   connected,
   language,
+  listStatus,
   onCheckout,
+  onRetryListStatus,
+  receivedItemCount,
+  showDeliveryStatus = true,
   snapshot,
   strings,
   textScale,
@@ -33,6 +41,10 @@ export function HomeScreen({
       <RevealView style={stacked ? [styles.leftColumn, styles.fullWidth] : styles.leftColumn}>
         <ShoppingListPanel
           language={language}
+          listStatus={listStatus}
+          onRetryListStatus={onRetryListStatus}
+          receivedItemCount={receivedItemCount}
+          showDeliveryStatus={showDeliveryStatus}
           snapshot={snapshot}
           strings={strings}
           textScale={textScale}

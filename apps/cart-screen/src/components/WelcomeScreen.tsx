@@ -1,18 +1,22 @@
 import { Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import QRCode from "react-native-qrcode-svg";
-import type { CartBackendStatus, CartSnapshot } from "../store/cartUiStore";
+import type { CartBackendStatus, CartSnapshot, ListDeliveryStatus } from "../store/cartUiStore";
 import { CART_SCREEN_BACKEND_MODE } from "../realtime/config";
 import type { AppStrings, ThemePalette } from "../ui/appUi";
 import { scaleSize, shadowStyle } from "../ui/appUi";
 import { CartoLogo } from "./CartoLogo";
+import { ListDeliveryStatusIndicator } from "./ListDeliveryStatusIndicator";
 import { RevealView } from "./RevealView";
 
 interface WelcomeScreenProps {
   backendStatus: CartBackendStatus;
   cartCode: string;
   connected: boolean;
+  listStatus: ListDeliveryStatus;
+  receivedItemCount: number;
   onContinueWithoutList: () => void;
   onRefreshQr?: () => void;
+  onRetryListStatus?: () => void;
   snapshot: CartSnapshot | null;
   strings: AppStrings;
   textScale: number;
@@ -44,8 +48,11 @@ export function WelcomeScreen({
   backendStatus,
   cartCode,
   connected,
+  listStatus,
+  receivedItemCount,
   onContinueWithoutList,
   onRefreshQr,
+  onRetryListStatus,
   snapshot,
   strings,
   textScale,
@@ -105,6 +112,15 @@ export function WelcomeScreen({
             theme={theme}
           />
         </View>
+
+        <ListDeliveryStatusIndicator
+          listStatus={listStatus}
+          onRetry={onRetryListStatus}
+          receivedItemCount={receivedItemCount}
+          strings={strings}
+          textScale={textScale}
+          theme={theme}
+        />
 
         <Text style={[styles.qrTitle, { color: theme.textPrimary, fontSize: scaleSize(22, textScale) }]}>
           {strings.qrPrompt}
@@ -211,7 +227,7 @@ export function WelcomeScreen({
 }
 
 function getPairingStatusLabel(status: CartBackendStatus, strings: AppStrings) {
-  if (status === "waiting") return "Waiting for shopping list";
+  if (status === "waiting") return strings.listWaitingForPairing;
   if (status === "active") return "Active session";
   if (status === "offline") return "Backend unavailable";
   if (status === "connected") return strings.pairingReady;

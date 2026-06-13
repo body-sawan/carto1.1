@@ -1,10 +1,15 @@
 import { ScrollView, StyleSheet, Text, View } from "react-native";
-import type { CartSnapshot, UiLanguage } from "../store/cartUiStore";
+import type { CartSnapshot, ListDeliveryStatus, UiLanguage } from "../store/cartUiStore";
 import type { AppStrings, ThemePalette } from "../ui/appUi";
 import { scaleSize, shadowStyle } from "../ui/appUi";
+import { ListDeliveryStatusIndicator } from "./ListDeliveryStatusIndicator";
 
 interface ShoppingListPanelProps {
   language: UiLanguage;
+  listStatus: ListDeliveryStatus;
+  onRetryListStatus?: () => void;
+  receivedItemCount: number;
+  showDeliveryStatus?: boolean;
   snapshot: CartSnapshot | null;
   strings: AppStrings;
   textScale: number;
@@ -13,6 +18,10 @@ interface ShoppingListPanelProps {
 
 export function ShoppingListPanel({
   language,
+  listStatus,
+  onRetryListStatus,
+  receivedItemCount,
+  showDeliveryStatus = true,
   snapshot,
   strings,
   textScale,
@@ -45,6 +54,17 @@ export function ShoppingListPanel({
           </Text>
         </View>
       </View>
+
+      {showDeliveryStatus ? (
+        <ListDeliveryStatusIndicator
+          listStatus={listStatus}
+          onRetry={onRetryListStatus}
+          receivedItemCount={receivedItemCount}
+          strings={strings}
+          textScale={textScale}
+          theme={theme}
+        />
+      ) : null}
 
       <ScrollView contentContainerStyle={styles.list}>
         {items.map((item) => {

@@ -10,20 +10,35 @@ export type UiScanMode = "auto" | "manual";
 export type IntegrationMode = "local-edge" | "online-api" | "mock-online";
 export type SessionControlMode = "full" | "local_guest" | "read_only";
 export type CartBackendStatus = "checking" | "connected" | "waiting" | "active" | "offline";
+export type ListDeliveryStatus =
+  | "waiting"
+  | "checking"
+  | "received"
+  | "failed"
+  | "offline"
+  | "fetching_qr"
+  | "refreshing_qr"
+  | "auth_error"
+  | "cart_not_found"
+  | "cors_error";
 
 interface CartUiStore {
   connected: boolean;
   snapshot: CartSnapshot | null;
   lastUpdateAt: string | null;
   backendStatus: CartBackendStatus;
+  listStatus: ListDeliveryStatus;
+  receivedItemCount: number;
   sessionControlMode: SessionControlMode;
   integrationMode: IntegrationMode;
   activeTab: TabletTab;
   language: UiLanguage;
   textSize: UiTextSize;
   scanMode: UiScanMode;
+  activeSessionRefreshKey: number;
   setConnected: (connected: boolean) => void;
   setBackendStatus: (status: CartBackendStatus) => void;
+  setListStatus: (status: ListDeliveryStatus, receivedItemCount?: number) => void;
   setSnapshot: (snapshot: CartSnapshot) => void;
   clearSnapshot: () => void;
   setSessionControlMode: (mode: SessionControlMode) => void;
@@ -32,6 +47,7 @@ interface CartUiStore {
   setLanguage: (language: UiLanguage) => void;
   setTextSize: (textSize: UiTextSize) => void;
   setScanMode: (scanMode: UiScanMode) => void;
+  requestActiveSessionRefresh: () => void;
 }
 
 export const useCartUiStore = create<CartUiStore>((set) => ({
@@ -39,14 +55,18 @@ export const useCartUiStore = create<CartUiStore>((set) => ({
   snapshot: null,
   lastUpdateAt: null,
   backendStatus: "checking",
+  listStatus: "checking",
+  receivedItemCount: 0,
   sessionControlMode: "full",
-  integrationMode: "local-edge",
+  integrationMode: "online-api",
   activeTab: "home",
   language: "en",
   textSize: "normal",
   scanMode: "auto",
+  activeSessionRefreshKey: 0,
   setConnected: (connected) => set({ connected }),
   setBackendStatus: (backendStatus) => set({ backendStatus }),
+  setListStatus: (listStatus, receivedItemCount = 0) => set({ listStatus, receivedItemCount }),
   setSnapshot: (snapshot) => set({ snapshot, lastUpdateAt: new Date().toISOString() }),
   clearSnapshot: () => set({ snapshot: null, lastUpdateAt: null }),
   setSessionControlMode: (sessionControlMode) => set({ sessionControlMode }),
@@ -54,5 +74,6 @@ export const useCartUiStore = create<CartUiStore>((set) => ({
   setActiveTab: (activeTab) => set({ activeTab }),
   setLanguage: (language) => set({ language }),
   setTextSize: (textSize) => set({ textSize }),
-  setScanMode: (scanMode) => set({ scanMode })
+  setScanMode: (scanMode) => set({ scanMode }),
+  requestActiveSessionRefresh: () => set((state) => ({ activeSessionRefreshKey: state.activeSessionRefreshKey + 1 }))
 }));

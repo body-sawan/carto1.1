@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useCartUiStore } from "../store/cartUiStore";
-import { CART_SCREEN_BACKEND_MODE, CART_SCREEN_LEGACY_MODE } from "./config";
+import { CART_SCREEN_BACKEND_MODE } from "./config";
 import {
   addCartoItem,
   buildWaitingSnapshot,
@@ -28,6 +28,7 @@ type RuntimeActions = {
   cancelCheckout: () => Promise<void>;
   confirmPayment: () => Promise<void>;
   refreshQr: () => Promise<void>;
+  retryListStatus: () => Promise<void>;
   removeItem: (productId: string, quantity?: number) => Promise<void>;
   resetSession: () => Promise<void>;
   retryPayment: () => Promise<void>;
@@ -38,16 +39,17 @@ type RuntimeActions = {
 
 export function useCartRuntime(): RuntimeActions {
   const backendMode = CART_SCREEN_BACKEND_MODE;
-  const legacyMode = CART_SCREEN_LEGACY_MODE;
   const edgeSocket = useCartSocket(backendMode === "edge");
   const edgeHealth = useBackendHealth(backendMode === "edge");
   const snapshot = useCartUiStore((state) => state.snapshot);
   const sessionControlMode = useCartUiStore((state) => state.sessionControlMode);
   const setBackendStatus = useCartUiStore((state) => state.setBackendStatus);
   const setConnected = useCartUiStore((state) => state.setConnected);
+  const setListStatus = useCartUiStore((state) => state.setListStatus);
   const setSessionControlMode = useCartUiStore((state) => state.setSessionControlMode);
   const setSnapshot = useCartUiStore((state) => state.setSnapshot);
   const setIntegrationMode = useCartUiStore((state) => state.setIntegrationMode);
+  const requestActiveSessionRefresh = useCartUiStore((state) => state.requestActiveSessionRefresh);
   const snapshotRef = useRef(snapshot);
 
   useEffect(() => {
@@ -81,6 +83,7 @@ export function useCartRuntime(): RuntimeActions {
         cancelCheckout: async () => edgeSocket.cancelCheckout(),
         confirmPayment: async () => edgeSocket.confirmPayment(),
         refreshQr: async () => undefined,
+        retryListStatus: async () => undefined,
         removeItem: async () => undefined,
         resetSession: async () => edgeSocket.resetSession(),
         retryPayment: async () => edgeSocket.retryPayment(),
@@ -111,18 +114,27 @@ export function useCartRuntime(): RuntimeActions {
         }
 
         const cartCode = snapshotRef.current?.pairing?.cartId || snapshotRef.current?.cartId;
-        if (!cartCode && legacyMode !== "mock-online") {
+        if (!cartCode) {
           throw new Error("Cart code is missing. Unable to refresh QR.");
         }
 
-        const effectiveCartCode = cartCode || "CART-001";
+        const effectiveCartCode = cartCode || "cart-01";
         setConnected(true);
         setBackendStatus("waiting");
+        setListStatus("refreshing_qr", 0);
         setSessionControlMode("full");
         setSnapshot(buildWaitingSnapshot(effectiveCartCode));
 
         const qrData = await getCartQrCode(effectiveCartCode);
         setSnapshot(buildWaitingSnapshot(effectiveCartCode, qrData));
+      },
+      retryListStatus: async () => {
+        if (isLocalGuest) {
+          return;
+        }
+
+        setListStatus("checking", 0);
+        requestActiveSessionRefresh();
       },
       removeItem: async (productId, quantity = 1) => {
         if (isLocalGuest) {
@@ -133,7 +145,7 @@ export function useCartRuntime(): RuntimeActions {
         }
 
         const hasBackendSession = Boolean(snapshotRef.current?.sessionId && snapshotRef.current?.state !== "WAITING_FOR_LIST");
-        if (!hasBackendSession && legacyMode !== "mock-online") {
+        if (!hasBackendSession) {
           throw new Error("No active backend session is available for cart updates.");
         }
 
@@ -152,15 +164,16 @@ export function useCartRuntime(): RuntimeActions {
           resetLocalGuestSession();
           setConnected(true);
           setBackendStatus("connected");
+          setListStatus("waiting", 0);
           return;
         }
 
         const hasBackendSession = Boolean(snapshotRef.current?.sessionId && snapshotRef.current?.state !== "WAITING_FOR_LIST");
-        let waitingSnapshot = hasBackendSession || legacyMode === "mock-online"
+        let waitingSnapshot = hasBackendSession
           ? await closeCartoSession()
           : buildWaitingSnapshot(snapshotRef.current?.cartId);
 
-        if (!hasBackendSession && legacyMode !== "mock-online") {
+        if (!hasBackendSession) {
           const effectiveCartCode = snapshotRef.current?.pairing?.cartId || snapshotRef.current?.cartId;
           if (effectiveCartCode) {
             const qrData = await getCartQrCode(effectiveCartCode);
@@ -171,6 +184,7 @@ export function useCartRuntime(): RuntimeActions {
         resetMockOnlineSession();
         setConnected(true);
         setBackendStatus("waiting");
+        setListStatus("waiting", 0);
         setSessionControlMode("full");
         setSnapshot(waitingSnapshot);
       },
@@ -187,7 +201,7 @@ export function useCartRuntime(): RuntimeActions {
         }
 
         const hasBackendSession = Boolean(snapshotRef.current?.sessionId && snapshotRef.current?.state !== "WAITING_FOR_LIST");
-        if (!hasBackendSession && legacyMode !== "mock-online") {
+        if (!hasBackendSession) {
           throw new Error("No active backend session is available for checkout.");
         }
 
@@ -209,7 +223,7 @@ export function useCartRuntime(): RuntimeActions {
         }
 
         const hasBackendSession = Boolean(snapshotRef.current?.sessionId && snapshotRef.current?.state !== "WAITING_FOR_LIST");
-        if (!hasBackendSession && legacyMode !== "mock-online") {
+        if (!hasBackendSession) {
           throw new Error("No active backend session is available for cart updates.");
         }
 
@@ -224,5 +238,5 @@ export function useCartRuntime(): RuntimeActions {
         setSnapshot(snapshot);
       }
     };
-  }, [backendMode, edgeSocket, legacyMode, sessionControlMode, setBackendStatus, setConnected, setSessionControlMode, setSnapshot]);
+  }, [backendMode, edgeSocket, requestActiveSessionRefresh, sessionControlMode, setBackendStatus, setConnected, setListStatus, setSessionControlMode, setSnapshot]);
 }

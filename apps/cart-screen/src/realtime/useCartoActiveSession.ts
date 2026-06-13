@@ -2,25 +2,31 @@ import type { CartSnapshot } from "@carto/shared";
 import { useEffect, useRef } from "react";
 import { useCartUiStore } from "../store/cartUiStore";
 import { CART_CODE } from "./config";
-import { buildWaitingSnapshot, getActiveSession, getCartQrCode, mapActiveSessionToSnapshot } from "./cartoApi";
+import { buildWaitingSnapshot, getActiveSession, getCartQrCode, getCartoErrorKind, mapActiveSessionToSnapshot } from "./cartoApi";
 
 const WAITING_POLL_INTERVAL_MS = 2000;
-const ACTIVE_POLL_INTERVAL_MS = 5000;
-const ERROR_RETRY_INTERVAL_MS = 5000;
+const ACTIVE_POLL_INTERVAL_MS = 2000;
+const ERROR_RETRY_INTERVAL_MS = 2000;
 const QR_REFRESH_FALLBACK_INTERVAL_MS = 45000;
 const QR_REFRESH_EARLY_BUFFER_MS = 10000;
+const OFFLINE_THRESHOLD = 2;
 
 export function useCartoActiveSession(enabled: boolean) {
+  const activeSessionRefreshKey = useCartUiStore((state) => state.activeSessionRefreshKey);
   const sessionControlMode = useCartUiStore((state) => state.sessionControlMode);
   const setBackendStatus = useCartUiStore((state) => state.setBackendStatus);
   const setConnected = useCartUiStore((state) => state.setConnected);
+  const setListStatus = useCartUiStore((state) => state.setListStatus);
   const setSessionControlMode = useCartUiStore((state) => state.setSessionControlMode);
   const setSnapshot = useCartUiStore((state) => state.setSnapshot);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pollRef = useRef<(() => Promise<void>) | null>(null);
   const qrRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inFlightRef = useRef(false);
   const qrFetchInFlightRef = useRef(false);
   const mountedRef = useRef(false);
+  const pollStartedRef = useRef(false);
+  const consecutiveNetworkFailuresRef = useRef(0);
   const activeRequestControllerRef = useRef<AbortController | null>(null);
   const qrRequestControllerRef = useRef<AbortController | null>(null);
 
@@ -99,6 +105,7 @@ export function useCartoActiveSession(enabled: boolean) {
     const controller = new AbortController();
     qrRequestControllerRef.current = controller;
 
+    setListStatus(force ? "refreshing_qr" : "fetching_qr", 0);
     setSnapshot(buildWaitingSnapshot(effectiveCartCode));
 
     try {
@@ -108,13 +115,27 @@ export function useCartoActiveSession(enabled: boolean) {
       }
 
       const waitingSnapshot = buildWaitingSnapshot(effectiveCartCode, qrData);
+      setListStatus("waiting", 0);
       setSnapshot(waitingSnapshot);
       scheduleQrRefresh(waitingSnapshot, new Date().toISOString(), effectiveCartCode);
-    } catch {
+    } catch (error) {
       if (!mountedRef.current || isSessionActive(useCartUiStore.getState().snapshot)) {
         return;
       }
 
+      const errorKind = getCartoErrorKind(error);
+      setListStatus(
+        errorKind === "auth"
+          ? "auth_error"
+          : errorKind === "cart_not_found"
+            ? "cart_not_found"
+            : errorKind === "cors"
+              ? "cors_error"
+            : errorKind === "network"
+              ? "offline"
+              : "failed",
+        0
+      );
       setSnapshot(buildWaitingSnapshot(effectiveCartCode));
       scheduleQrRetry(effectiveCartCode);
     } finally {
@@ -133,10 +154,12 @@ export function useCartoActiveSession(enabled: boolean) {
     if (sessionControlMode === "local_guest") {
       setConnected(true);
       setBackendStatus("connected");
+      setListStatus("waiting", 0);
       return undefined;
     }
 
     mountedRef.current = true;
+    pollStartedRef.current = false;
 
     function scheduleNextPoll(delay: number) {
       clearPollTimer();
@@ -154,6 +177,11 @@ export function useCartoActiveSession(enabled: boolean) {
         return;
       }
 
+      if (!pollStartedRef.current) {
+        setListStatus("checking", 0);
+        pollStartedRef.current = true;
+      }
+
       inFlightRef.current = true;
       const controller = new AbortController();
       activeRequestControllerRef.current = controller;
@@ -169,23 +197,63 @@ export function useCartoActiveSession(enabled: boolean) {
         const hasActiveSession = isSessionActive(latestSnapshot);
 
         if (!result.ok) {
+          const nextFailureCount = result.errorKind === "network"
+            ? consecutiveNetworkFailuresRef.current + 1
+            : 0;
+          consecutiveNetworkFailuresRef.current = nextFailureCount;
+
           setConnected(true);
-          setBackendStatus("offline");
+          setBackendStatus(result.errorKind === "network" ? "offline" : "checking");
           setSessionControlMode("full");
+          if (!hasShoppingListSnapshot(latestSnapshot)) {
+            setListStatus(
+              result.errorKind === "auth"
+                ? "auth_error"
+                : result.errorKind === "cart_not_found"
+                  ? "cart_not_found"
+                  : result.errorKind === "cors"
+                    ? "cors_error"
+                  : result.errorKind === "network"
+                    ? (nextFailureCount >= OFFLINE_THRESHOLD ? "offline" : "failed")
+                    : "failed",
+              0
+            );
+          }
           if (!hasActiveSession) {
             await ensureWaitingSnapshot(latestSnapshot, result.data.cartCode);
           }
           nextPollDelay = ERROR_RETRY_INTERVAL_MS;
         } else if (result.data.status === "waiting") {
+          consecutiveNetworkFailuresRef.current = 0;
           setConnected(true);
           setBackendStatus("waiting");
           setSessionControlMode("full");
+          setListStatus("waiting", 0);
           await ensureWaitingSnapshot(latestSnapshot, result.data.cartCode, hasActiveSession);
           nextPollDelay = WAITING_POLL_INTERVAL_MS;
         } else {
+          const listContainer = result.data.shoppingList ?? result.data.list ?? null;
+          if (!listContainer) {
+            consecutiveNetworkFailuresRef.current = 0;
+            setConnected(true);
+            setBackendStatus("offline");
+            setSessionControlMode("full");
+            if (!hasShoppingListSnapshot(latestSnapshot)) {
+              setListStatus("failed", 0);
+            }
+            if (!hasActiveSession) {
+              await ensureWaitingSnapshot(latestSnapshot, result.data.cartCode, true);
+            }
+            nextPollDelay = ERROR_RETRY_INTERVAL_MS;
+            return;
+          }
+
+          consecutiveNetworkFailuresRef.current = 0;
+          const receivedItemCount = Array.isArray(listContainer.items) ? listContainer.items.length : 0;
           setConnected(true);
           setBackendStatus("active");
           setSessionControlMode("full");
+          setListStatus("received", receivedItemCount);
           clearQrRefreshTimer();
           cancelQrRequest();
           setSnapshot(mapActiveSessionToSnapshot(result.data, latestSnapshot));
@@ -200,10 +268,12 @@ export function useCartoActiveSession(enabled: boolean) {
       }
     }
 
+    pollRef.current = poll;
     void poll();
 
     return () => {
       mountedRef.current = false;
+      pollRef.current = null;
       activeRequestControllerRef.current?.abort();
       activeRequestControllerRef.current = null;
       cancelQrRequest();
@@ -212,11 +282,25 @@ export function useCartoActiveSession(enabled: boolean) {
       clearPollTimer();
       clearQrRefreshTimer();
     };
-  }, [enabled, sessionControlMode, setBackendStatus, setConnected, setSessionControlMode, setSnapshot]);
+  }, [enabled, sessionControlMode, setBackendStatus, setConnected, setListStatus, setSessionControlMode, setSnapshot]);
+
+  useEffect(() => {
+    if (!enabled || activeSessionRefreshKey === 0 || !mountedRef.current) {
+      return;
+    }
+
+    clearPollTimer();
+    pollStartedRef.current = false;
+    void pollRef.current?.();
+  }, [activeSessionRefreshKey, enabled]);
 }
 
 function isSessionActive(snapshot: CartSnapshot | null | undefined) {
   return Boolean(snapshot?.sessionId && snapshot.state !== "WAITING_FOR_LIST" && snapshot.state !== "SESSION_CLOSED");
+}
+
+function hasShoppingListSnapshot(snapshot: CartSnapshot | null | undefined) {
+  return isSessionActive(snapshot);
 }
 
 function shouldRefreshWaitingSnapshot(snapshot: CartSnapshot | null | undefined, lastUpdateAt: string | null) {
