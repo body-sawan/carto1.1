@@ -139,6 +139,13 @@ export interface AppStrings {
   itemsLabel: string;
   qrLoading: string;
   pairingReady: string;
+  generatePaymentQr: string;
+  scanToPay: string;
+  receiptNotReadyMessage: string;
+  paymentQrError: string;
+  paymentZeroTotal: string;
+  disconnectSession: string;
+  paymentWaitingMessage: string;
 }
 
 const cartoBlurGreenTheme: ThemePalette = {
@@ -256,7 +263,7 @@ const english: AppStrings = {
   paymentCompleteTitle: "Payment completed successfully",
   paymentCompleteBody: "Your session is finished and the receipt is ready.",
   thankYou: "Thank you for shopping with Carto.",
-  returnCountdown: "Returning to the QR screen in 5 seconds.",
+  returnCountdown: "Returning to the QR screen in 3 seconds.",
   openWebsiteList: "Open the website and create a shopping list to enjoy the full experience.",
   productAdded: "Added to cart",
   productNotAdded: "Product was not added",
@@ -278,7 +285,14 @@ const english: AppStrings = {
   retry: "Retry",
   itemsLabel: "items",
   qrLoading: "Preparing QR pairing",
-  pairingReady: "Ready to pair"
+  pairingReady: "Ready to pair",
+  generatePaymentQr: "Generate payment QR",
+  scanToPay: "Scan to pay",
+  receiptNotReadyMessage: "Receipt is not ready yet.",
+  paymentQrError: "Could not create payment QR. Try again.",
+  paymentZeroTotal: "Payment cannot start because the receipt total is 0.",
+  disconnectSession: "Disconnect",
+  paymentWaitingMessage: "Waiting for payment..."
 };
 
 const arabic: AppStrings = {
@@ -375,7 +389,7 @@ const arabic: AppStrings = {
   paymentCompleteTitle: "تم السداد بنجاح",
   paymentCompleteBody: "انتهت الجلسة والإيصال جاهز.",
   thankYou: "شكرًا لتسوقك مع كارتو.",
-  returnCountdown: "العودة إلى شاشة QR خلال 5 ثوانٍ.",
+  returnCountdown: "العودة إلى شاشة QR خلال 3 ثوانٍ.",
   openWebsiteList: "افتح الموقع وأنشئ قائمة تسوق للاستفادة من التجربة الكاملة.",
   productAdded: "تمت الإضافة إلى السلة",
   productNotAdded: "لم تتم إضافة المنتج",
@@ -397,7 +411,14 @@ const arabic: AppStrings = {
   retry: "إعادة المحاولة",
   itemsLabel: "عناصر",
   qrLoading: "جارٍ تجهيز رمز الربط",
-  pairingReady: "جاهز للربط"
+  pairingReady: "جاهز للربط",
+  generatePaymentQr: "إنشاء QR للدفع",
+  scanToPay: "امسح للدفع",
+  receiptNotReadyMessage: "الإيصال غير جاهز بعد.",
+  paymentQrError: "تعذر إنشاء QR للدفع. حاول مرة أخرى.",
+  paymentZeroTotal: "لا يمكن بدء الدفع لأن إجمالي الإيصال يساوي 0.",
+  disconnectSession: "فصل الجلسة",
+  paymentWaitingMessage: "في انتظار السداد..."
 };
 
 export function getThemePalette() {
@@ -420,16 +441,16 @@ export function isArabic(language: UiLanguage) {
   return language === "ar";
 }
 
-export function formatCurrency(value: number | undefined, language: UiLanguage) {
+export function formatCurrency(value: number | undefined, language: UiLanguage, currency = "EGP") {
   const safeValue = value ?? 0;
   try {
     return new Intl.NumberFormat(language === "ar" ? "ar-EG" : "en-US", {
       style: "currency",
-      currency: "EGP",
+      currency,
       maximumFractionDigits: 2
     }).format(safeValue);
   } catch {
-    return `${safeValue.toFixed(2)} EGP`;
+    return `${safeValue.toFixed(2)} ${currency}`;
   }
 }
 

@@ -2,11 +2,11 @@ import type { CartSnapshot } from "@carto/shared";
 import { useEffect, useRef } from "react";
 import { useCartUiStore } from "../store/cartUiStore";
 import { CART_CODE } from "./config";
-import { buildWaitingSnapshot, getActiveSession, getCartQrCode, getCartoErrorKind, mapActiveSessionToSnapshot } from "./cartoApi";
+import { applyPaymentSessionToSnapshot, buildWaitingSnapshot, getActiveSession, getCartQrCode, getCartoErrorKind, mapActiveSessionToSnapshot } from "./cartoApi";
 
 const WAITING_POLL_INTERVAL_MS = 2000;
-const ACTIVE_POLL_INTERVAL_MS = 2000;
-const ERROR_RETRY_INTERVAL_MS = 2000;
+const ACTIVE_POLL_INTERVAL_MS = 5000;
+const ERROR_RETRY_INTERVAL_MS = 5000;
 const QR_REFRESH_FALLBACK_INTERVAL_MS = 45000;
 const QR_REFRESH_EARLY_BUFFER_MS = 10000;
 const OFFLINE_THRESHOLD = 2;
@@ -16,6 +16,7 @@ export function useCartoActiveSession(enabled: boolean) {
   const sessionControlMode = useCartUiStore((state) => state.sessionControlMode);
   const setBackendStatus = useCartUiStore((state) => state.setBackendStatus);
   const setConnected = useCartUiStore((state) => state.setConnected);
+  const clearPaymentSession = useCartUiStore((state) => state.clearPaymentSession);
   const setListStatus = useCartUiStore((state) => state.setListStatus);
   const setSessionControlMode = useCartUiStore((state) => state.setSessionControlMode);
   const setSnapshot = useCartUiStore((state) => state.setSnapshot);
@@ -195,6 +196,7 @@ export function useCartoActiveSession(enabled: boolean) {
 
         const latestSnapshot = useCartUiStore.getState().snapshot;
         const hasActiveSession = isSessionActive(latestSnapshot);
+        const paymentSession = useCartUiStore.getState().paymentSession;
 
         if (!result.ok) {
           const nextFailureCount = result.errorKind === "network"
@@ -224,6 +226,15 @@ export function useCartoActiveSession(enabled: boolean) {
           }
           nextPollDelay = ERROR_RETRY_INTERVAL_MS;
         } else if (result.data.status === "waiting") {
+          if (paymentSession?.status === "success") {
+            nextPollDelay = ACTIVE_POLL_INTERVAL_MS;
+            return;
+          }
+
+          if (paymentSession) {
+            clearPaymentSession();
+          }
+
           consecutiveNetworkFailuresRef.current = 0;
           setConnected(true);
           setBackendStatus("waiting");
@@ -250,13 +261,15 @@ export function useCartoActiveSession(enabled: boolean) {
 
           consecutiveNetworkFailuresRef.current = 0;
           const receivedItemCount = Array.isArray(listContainer.items) ? listContainer.items.length : 0;
+          const mappedSnapshot = mapActiveSessionToSnapshot(result.data, latestSnapshot);
+          const effectiveSnapshot = applyPaymentSessionToSnapshot(mappedSnapshot, paymentSession);
           setConnected(true);
           setBackendStatus("active");
           setSessionControlMode("full");
           setListStatus("received", receivedItemCount);
           clearQrRefreshTimer();
           cancelQrRequest();
-          setSnapshot(mapActiveSessionToSnapshot(result.data, latestSnapshot));
+          setSnapshot(effectiveSnapshot);
           nextPollDelay = ACTIVE_POLL_INTERVAL_MS;
         }
       } finally {
@@ -282,7 +295,7 @@ export function useCartoActiveSession(enabled: boolean) {
       clearPollTimer();
       clearQrRefreshTimer();
     };
-  }, [enabled, sessionControlMode, setBackendStatus, setConnected, setListStatus, setSessionControlMode, setSnapshot]);
+  }, [clearPaymentSession, enabled, sessionControlMode, setBackendStatus, setConnected, setListStatus, setSessionControlMode, setSnapshot]);
 
   useEffect(() => {
     if (!enabled || activeSessionRefreshKey === 0 || !mountedRef.current) {

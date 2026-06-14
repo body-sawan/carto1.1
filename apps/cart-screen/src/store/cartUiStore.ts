@@ -21,6 +21,19 @@ export type ListDeliveryStatus =
   | "auth_error"
   | "cart_not_found"
   | "cors_error";
+export type CartPaymentFlowStatus = "idle" | "creating" | "pending" | "success" | "failed";
+
+export interface CartPaymentSession {
+  amount: number;
+  cartSessionId: string;
+  currency: string;
+  errorMessage?: string | null;
+  paymentStatus: string;
+  paymentUrl: string;
+  qrValue: string;
+  receiptId: string;
+  status: CartPaymentFlowStatus;
+}
 
 interface CartUiStore {
   connected: boolean;
@@ -29,6 +42,7 @@ interface CartUiStore {
   backendStatus: CartBackendStatus;
   listStatus: ListDeliveryStatus;
   receivedItemCount: number;
+  paymentSession: CartPaymentSession | null;
   sessionControlMode: SessionControlMode;
   integrationMode: IntegrationMode;
   activeTab: TabletTab;
@@ -39,6 +53,8 @@ interface CartUiStore {
   setConnected: (connected: boolean) => void;
   setBackendStatus: (status: CartBackendStatus) => void;
   setListStatus: (status: ListDeliveryStatus, receivedItemCount?: number) => void;
+  setPaymentSession: (paymentSession: CartPaymentSession | null) => void;
+  clearPaymentSession: () => void;
   setSnapshot: (snapshot: CartSnapshot) => void;
   clearSnapshot: () => void;
   setSessionControlMode: (mode: SessionControlMode) => void;
@@ -57,6 +73,7 @@ export const useCartUiStore = create<CartUiStore>((set) => ({
   backendStatus: "checking",
   listStatus: "checking",
   receivedItemCount: 0,
+  paymentSession: null,
   sessionControlMode: "full",
   integrationMode: "online-api",
   activeTab: "home",
@@ -67,6 +84,8 @@ export const useCartUiStore = create<CartUiStore>((set) => ({
   setConnected: (connected) => set({ connected }),
   setBackendStatus: (backendStatus) => set({ backendStatus }),
   setListStatus: (listStatus, receivedItemCount = 0) => set({ listStatus, receivedItemCount }),
+  setPaymentSession: (paymentSession) => set({ paymentSession }),
+  clearPaymentSession: () => set({ paymentSession: null }),
   setSnapshot: (snapshot) => set({ snapshot, lastUpdateAt: new Date().toISOString() }),
   clearSnapshot: () => set({ snapshot: null, lastUpdateAt: null }),
   setSessionControlMode: (sessionControlMode) => set({ sessionControlMode }),

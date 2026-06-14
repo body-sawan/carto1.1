@@ -10,7 +10,7 @@ import { CloseSessionConfirmModal } from "../components/CloseSessionConfirmModal
 import { HomeScreen } from "../components/HomeScreen";
 import { ProductFeedbackOverlay, type ProductFeedback } from "../components/ProductFeedbackOverlay";
 import { WelcomeScreen } from "../components/WelcomeScreen";
-import { CART_CODE } from "../realtime/config";
+import { CART_CODE, CART_SCREEN_BACKEND_MODE } from "../realtime/config";
 import { useCartRuntime } from "../realtime/useCartRuntime";
 import { useCartUiStore } from "../store/cartUiStore";
 import { getAppStrings, getTextScale, getThemePalette, scaleSize } from "../ui/appUi";
@@ -26,6 +26,7 @@ export function CartScreen() {
   const connected = useCartUiStore((state) => state.connected);
   const language = useCartUiStore((state) => state.language);
   const listStatus = useCartUiStore((state) => state.listStatus);
+  const paymentSession = useCartUiStore((state) => state.paymentSession);
   const receivedItemCount = useCartUiStore((state) => state.receivedItemCount);
   const sessionControlMode = useCartUiStore((state) => state.sessionControlMode);
   const textSize = useCartUiStore((state) => state.textSize);
@@ -123,7 +124,7 @@ export function CartScreen() {
             resetTransientUi();
           }
         })();
-      }, 5000);
+      }, 2500);
     }
 
     if (snapshot.state !== "PAID" && previous?.state === "PAID") {
@@ -224,7 +225,7 @@ export function CartScreen() {
 
   async function handleReturnToShopping() {
     if (
-      sessionControlMode !== "read_only"
+      sessionControlMode === "local_guest"
       && (snapshot?.state === "WAITING_PAYMENT" || snapshot?.state === "PAYMENT_FAILED" || snapshot?.state === "CHECKOUT_PENDING")
     ) {
       pendingReturnToShoppingRef.current = true;
@@ -289,11 +290,13 @@ export function CartScreen() {
         onResetSession={() => void executeCloseSession()}
         onRetryPayment={() => void runRuntimeAction(runtime.retryPayment, strings.retryPayment)}
         onReturnToShopping={() => void handleReturnToShopping()}
+        paymentSession={paymentSession}
         sessionControlMode={sessionControlMode}
         snapshot={snapshot}
         strings={strings}
         textScale={textScale}
         theme={theme}
+        usesBackendPaymentQr={CART_SCREEN_BACKEND_MODE === "carto" && sessionControlMode !== "local_guest"}
       />
     );
   } else if (stage === "shopping") {

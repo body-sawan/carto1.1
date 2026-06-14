@@ -8,7 +8,8 @@ import {
   ShoppingBag
 } from "lucide-react-native";
 import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
-import type { CartSnapshot, SessionControlMode, UiLanguage } from "../store/cartUiStore";
+import QRCode from "react-native-qrcode-svg";
+import type { CartPaymentSession, CartSnapshot, SessionControlMode, UiLanguage } from "../store/cartUiStore";
 import type { AppStrings, ThemePalette } from "../ui/appUi";
 import { formatCurrency, formatStateLabel, scaleSize, shadowStyle } from "../ui/appUi";
 import { CartoLogo } from "./CartoLogo";
@@ -23,11 +24,13 @@ interface CheckoutScreenProps {
   onResetSession: () => void;
   onRetryPayment: () => void;
   onReturnToShopping: () => void;
+  paymentSession: CartPaymentSession | null;
   sessionControlMode: SessionControlMode;
   snapshot: CartSnapshot | null;
   strings: AppStrings;
   textScale: number;
   theme: ThemePalette;
+  usesBackendPaymentQr: boolean;
 }
 
 export function CheckoutScreen({
@@ -39,11 +42,13 @@ export function CheckoutScreen({
   onResetSession,
   onRetryPayment,
   onReturnToShopping,
+  paymentSession,
   sessionControlMode,
   snapshot,
   strings,
   textScale,
-  theme
+  theme,
+  usesBackendPaymentQr
 }: CheckoutScreenProps) {
   const { width } = useWindowDimensions();
   const stacked = width < 1180;
@@ -52,8 +57,28 @@ export function CheckoutScreen({
   const state = snapshot?.state;
   const statusTone = getStatusTone(state, theme);
   const StatusIcon = getStatusIcon(state);
-  const canStartCheckout = connected && state === "SHOPPING" && cartItems.length > 0;
+  const receiptId = paymentSession?.receiptId ?? snapshot?.payment.transactionId;
+  const paymentAmount = paymentSession?.amount ?? snapshot?.totals.total ?? 0;
+  const paymentCurrency = paymentSession?.currency ?? "EGP";
+  const paymentQrValue = paymentSession?.qrValue ?? paymentSession?.paymentUrl ?? "";
+  const paymentStatusLabel = paymentSession?.paymentStatus ?? snapshot?.payment.status ?? "Unavailable";
+  const paymentErrorMessage = paymentSession?.errorMessage;
+  const receiptReady = Boolean(receiptId);
+  const totalIsZero = paymentAmount <= 0;
+  const canStartCheckout = usesBackendPaymentQr
+    ? connected && state === "SHOPPING" && cartItems.length > 0 && receiptReady && !totalIsZero
+    : connected && state === "SHOPPING" && cartItems.length > 0;
   const showReturn = state !== "PAID" && state !== "WAITING_FOR_LIST" && state !== "SESSION_CLOSED";
+  const showDisconnectButton = usesBackendPaymentQr && state !== "PAID";
+  const helperText = getCheckoutHelperText({
+    paymentErrorMessage,
+    paymentQrValue,
+    receiptReady,
+    state,
+    strings,
+    totalIsZero,
+    usesBackendPaymentQr
+  });
 
   return (
     <View style={styles.root}>
@@ -191,7 +216,7 @@ export function CheckoutScreen({
                 {formatStateLabel(state, language)}
               </Text>
               <Text style={[styles.statusText, { color: theme.textSecondary, fontSize: scaleSize(13, textScale) }]}>
-                {strings.checkoutSubtitle}
+                {usesBackendPaymentQr ? helperText : strings.checkoutSubtitle}
               </Text>
             </View>
           </View>
@@ -200,32 +225,42 @@ export function CheckoutScreen({
             <View style={styles.placeholderHeader}>
               <Receipt size={18} color={theme.textPrimary} />
               <Text style={[styles.placeholderTitle, { color: theme.textPrimary, fontSize: scaleSize(14, textScale) }]}>
-                {state === "PAID" ? strings.receiptReady : strings.receiptPlaceholder}
+                {usesBackendPaymentQr ? strings.scanToPay : state === "PAID" ? strings.receiptReady : strings.receiptPlaceholder}
               </Text>
             </View>
             <View style={[styles.qrPlaceholder, { backgroundColor: theme.cardMuted, borderColor: theme.border }]}>
-              <QrCode size={46} color={theme.accent} />
+              {usesBackendPaymentQr && paymentQrValue ? (
+                <QRCode key={paymentQrValue} size={190} value={paymentQrValue} />
+              ) : state === "PAID" ? (
+                <CheckCircle2 size={56} color={theme.success} />
+              ) : (
+                <QrCode size={46} color={theme.accent} />
+              )}
             </View>
+            <Text style={[styles.placeholderMessage, { color: theme.textSecondary, fontSize: scaleSize(13, textScale) }]}>
+              {helperText}
+            </Text>
           </View>
 
           <View style={styles.sideSummary}>
             <SummaryRow label={strings.cartItems} value={`${totalQuantity}`} textScale={textScale} theme={theme} />
-            <SummaryRow label={strings.paymentStatus} value={snapshot?.payment.status ?? "Unavailable"} textScale={textScale} theme={theme} />
-            <SummaryRow label={strings.total} value={formatCurrency(snapshot?.totals.total, language)} textScale={textScale} strong theme={theme} />
+            <SummaryRow label={strings.paymentStatus} value={paymentStatusLabel} textScale={textScale} theme={theme} />
+            <SummaryRow label="Receipt ID" value={receiptId ?? "Unavailable"} textScale={textScale} theme={theme} />
+            <SummaryRow label={strings.total} value={formatCurrency(paymentAmount, language, paymentCurrency)} textScale={textScale} strong theme={theme} />
           </View>
 
           <View style={styles.buttonStack}>
             {(state === "SHOPPING" || state === "CHECKOUT_PENDING") ? (
                 <PrimaryButton
                   disabled={!canStartCheckout}
-                  label={strings.confirmCheckout}
+                  label={usesBackendPaymentQr ? strings.generatePaymentQr : strings.confirmCheckout}
                   onPress={onConfirmCheckout}
                   textScale={textScale}
                   theme={theme}
                 />
             ) : null}
 
-            {state === "WAITING_PAYMENT" ? (
+            {!usesBackendPaymentQr && state === "WAITING_PAYMENT" ? (
               <>
                 <PrimaryButton
                   disabled={!connected}
@@ -252,13 +287,24 @@ export function CheckoutScreen({
                   textScale={textScale}
                   theme={theme}
                 />
-                <SecondaryButton
-                  label={strings.cancelCheckout}
-                  onPress={onCancelCheckout}
-                  textScale={textScale}
-                  theme={theme}
-                />
+                {!usesBackendPaymentQr ? (
+                  <SecondaryButton
+                    label={strings.cancelCheckout}
+                    onPress={onCancelCheckout}
+                    textScale={textScale}
+                    theme={theme}
+                  />
+                ) : null}
               </>
+            ) : null}
+
+            {showDisconnectButton ? (
+              <SecondaryButton
+                label={strings.disconnectSession}
+                onPress={onCancelCheckout}
+                textScale={textScale}
+                theme={theme}
+              />
             ) : null}
 
             {(state === "PAID" || state === "WAITING_FOR_LIST" || state === "SESSION_CLOSED") ? (
@@ -373,6 +419,50 @@ function getStatusIcon(state: string | undefined) {
   if (state === "PAID") return CheckCircle2;
   if (state === "PAYMENT_FAILED") return AlertTriangle;
   return Clock3;
+}
+
+function getCheckoutHelperText({
+  paymentErrorMessage,
+  paymentQrValue,
+  receiptReady,
+  state,
+  strings,
+  totalIsZero,
+  usesBackendPaymentQr
+}: {
+  paymentErrorMessage: string | null | undefined;
+  paymentQrValue: string;
+  receiptReady: boolean;
+  state: string | undefined;
+  strings: AppStrings;
+  totalIsZero: boolean;
+  usesBackendPaymentQr: boolean;
+}) {
+  if (!usesBackendPaymentQr) {
+    return strings.checkoutSubtitle;
+  }
+
+  if (state === "PAID") {
+    return strings.checkoutSuccess;
+  }
+
+  if (state === "PAYMENT_FAILED") {
+    return paymentErrorMessage || strings.paymentQrError;
+  }
+
+  if (paymentQrValue) {
+    return state === "WAITING_PAYMENT" ? strings.paymentWaitingMessage : strings.scanToPay;
+  }
+
+  if (!receiptReady) {
+    return strings.receiptNotReadyMessage;
+  }
+
+  if (totalIsZero) {
+    return strings.paymentZeroTotal;
+  }
+
+  return paymentErrorMessage || strings.checkoutSubtitle;
 }
 
 const styles = StyleSheet.create({
@@ -557,6 +647,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center"
+  },
+  placeholderMessage: {
+    fontWeight: "700",
+    lineHeight: 20
   },
   sideSummary: {
     gap: 10

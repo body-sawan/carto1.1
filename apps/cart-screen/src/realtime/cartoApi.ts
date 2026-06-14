@@ -60,6 +60,26 @@ export interface CartoCheckoutData {
   total?: number;
 }
 
+export interface CartoPaymentQrData {
+  amount?: number;
+  cartSessionId?: string | null;
+  currency?: string | null;
+  paymentStatus?: string | null;
+  paymentUrl?: string | null;
+  qrValue?: string | null;
+  receiptId?: string | null;
+}
+
+export interface CartoPaymentStatusData {
+  amount?: number;
+  cartSessionId?: string | null;
+  currency?: string | null;
+  paymentStatus: string;
+  paymentUrl?: string | null;
+  qrValue?: string | null;
+  receiptId: string;
+}
+
 export interface CartoWaitingSessionData {
   active?: false;
   cart?: {
@@ -316,18 +336,85 @@ export async function checkoutCarto(previousSnapshot: CartSnapshot | null): Prom
   return mapCheckoutResponseToSnapshot(data, previousSnapshot);
 }
 
-export async function closeCartoSession(): Promise<CartSnapshot> {
-  const cartCode = ensureCartCode();
+export async function requestPaymentQr(
+  payload: { cartSessionId: string; receiptId: string },
+  cartCode = CART_CODE
+): Promise<CartoPaymentQrData> {
+  if (!cartCode) {
+    throw new Error("Cart code is missing. Set CART_CODE or EXPO_PUBLIC_CART_CODE.");
+  }
+
+  const requestPath = `/api/carts/${encodeURIComponent(cartCode)}/payment-qr`;
+  console.log("[cart-screen] payment QR request URL", buildAbsoluteUrl(requestPath));
+  console.log("[cart-screen] payment QR request meta", {
+    cartCode,
+    cartSessionId: payload.cartSessionId,
+    hasReceiptId: Boolean(payload.receiptId)
+  });
+
+  const data = await requestCarto<unknown>(requestPath, {
+    body: JSON.stringify(payload),
+    cache: "no-store",
+    method: "POST",
+    onResponse: ({ payload: responsePayload, status }) => {
+      console.log("[cart-screen] payment QR status code", status);
+      console.log("[cart-screen] payment QR response", responsePayload);
+    }
+  });
+
+  return normalizePaymentQrResponse(data);
+}
+
+export async function fetchPaymentStatus(
+  receiptId: string,
+  cartCode = CART_CODE,
+  signal?: AbortSignal
+): Promise<CartoPaymentStatusData> {
+  if (!cartCode) {
+    throw new Error("Cart code is missing. Set CART_CODE or EXPO_PUBLIC_CART_CODE.");
+  }
+
+  if (!receiptId) {
+    throw new Error("Receipt is not ready yet.");
+  }
+
+  const requestPath = `/api/carts/${encodeURIComponent(cartCode)}/payment-status?receiptId=${encodeURIComponent(receiptId)}&t=${Date.now()}`;
+  console.log("[cart-screen] payment-status request URL", buildAbsoluteUrl(requestPath));
+
+  const data = await requestCarto<unknown>(requestPath, {
+    cache: "no-store",
+    method: "GET",
+    onResponse: ({ payload, status }) => {
+      console.log("[cart-screen] payment-status status code", status);
+      console.log("[cart-screen] payment-status response", payload);
+    },
+    signal
+  });
+
+  return normalizePaymentStatusResponse(data, receiptId);
+}
+
+export async function disconnectCart(cartCode = CART_CODE) {
+  if (!cartCode) {
+    throw new Error("Cart code is missing. Set CART_CODE or EXPO_PUBLIC_CART_CODE.");
+  }
+
   const requestPath = `/api/carts/${encodeURIComponent(cartCode)}/disconnect`;
   console.log("[cart-screen] disconnect request URL", buildAbsoluteUrl(requestPath));
 
-  await requestCarto<{ activeSessionReleased?: boolean; cartCode?: string; cartStatus?: string }>(requestPath, {
+  return requestCarto<{ activeSessionReleased?: boolean; cartCode?: string; cartStatus?: string }>(requestPath, {
+    cache: "no-store",
     method: "POST",
     onResponse: ({ payload, status }) => {
       console.log("[cart-screen] disconnect request status", status);
       console.log("[cart-screen] disconnect response", payload);
     }
   });
+}
+
+export async function closeCartoSession(): Promise<CartSnapshot> {
+  const cartCode = ensureCartCode();
+  await disconnectCart(cartCode);
 
   let qrData: CartoQrData | null = null;
   try {
@@ -546,6 +633,41 @@ export function mapCheckoutResponseToSnapshot(data: CartoCheckoutData, previousS
   };
 }
 
+export function applyPaymentSessionToSnapshot(
+  snapshot: CartSnapshot,
+  paymentSession: {
+    amount?: number;
+    paymentStatus?: string | null;
+    receiptId?: string | null;
+    status?: "idle" | "creating" | "pending" | "success" | "failed";
+  } | null
+): CartSnapshot {
+  if (!paymentSession) {
+    return snapshot;
+  }
+
+  const baseAmount = safeNumber(paymentSession.amount, snapshot.payment.amount || snapshot.totals.total);
+  const normalizedStatus = paymentSession.status === "success"
+    ? "PAID"
+    : paymentSession.status === "failed"
+      ? "FAILED"
+      : mapPaymentStatus(paymentSession.paymentStatus, baseAmount, snapshot.cartItems.length) === "NOT_STARTED"
+        ? "WAITING_PAYMENT"
+        : mapPaymentStatus(paymentSession.paymentStatus, baseAmount, snapshot.cartItems.length);
+
+  return {
+    ...snapshot,
+    state: mapSnapshotState(normalizedStatus),
+    payment: {
+      ...snapshot.payment,
+      amount: baseAmount,
+      status: normalizedStatus,
+      transactionId: paymentSession.receiptId ?? snapshot.payment.transactionId,
+      updatedAt: new Date().toISOString()
+    }
+  };
+}
+
 export function resetMockOnlineSession() {
   // The device app always uses the backend as the source of truth now.
 }
@@ -676,8 +798,12 @@ function deriveShoppingItemStatus(inCartQuantity: number, targetQuantity: number
 function mapPaymentStatus(rawStatus: string | null | undefined, total: number, itemCount: number): PaymentStatus {
   const normalized = rawStatus?.toUpperCase() ?? "";
   if (normalized.includes("PAID")) return "PAID";
+  if (normalized.includes("COMPLETE")) return "PAID";
   if (normalized.includes("FAIL")) return "FAILED";
+  if (normalized.includes("CANCEL")) return "CANCELLED";
   if (normalized.includes("WAIT")) return "WAITING_PAYMENT";
+  if (normalized.includes("PEND")) return "WAITING_PAYMENT";
+  if (normalized.includes("PROCESS")) return "WAITING_PAYMENT";
   if (total <= 0 && itemCount <= 0) return "NOT_STARTED";
   return "NOT_STARTED";
 }
@@ -685,6 +811,7 @@ function mapPaymentStatus(rawStatus: string | null | undefined, total: number, i
 function mapSnapshotState(paymentStatus: PaymentStatus): CartSnapshot["state"] {
   if (paymentStatus === "PAID") return "PAID";
   if (paymentStatus === "FAILED") return "PAYMENT_FAILED";
+  if (paymentStatus === "CANCELLED") return "PAYMENT_FAILED";
   if (paymentStatus === "WAITING_PAYMENT") return "WAITING_PAYMENT";
   return "SHOPPING";
 }
@@ -736,6 +863,53 @@ function readShoppingListContainer(data: Record<string, unknown>) {
   const fromShoppingList = asMaybeShoppingList(data.shoppingList);
   const fromList = asMaybeShoppingList(data.list);
   return { fromList, fromShoppingList };
+}
+
+function normalizePaymentQrResponse(payload: unknown): CartoPaymentQrData {
+  const data = asRecord(payload);
+  if (!data) {
+    throw new Error("Could not create payment QR. Try again.");
+  }
+
+  const receiptId = normalizeOptionalString(data.receiptId);
+  const cartSessionId = normalizeOptionalString(data.cartSessionId);
+  const qrValue = normalizeOptionalString(data.qrValue) ?? normalizeOptionalString(data.paymentUrl);
+
+  if (!receiptId || !cartSessionId || !qrValue) {
+    throw new Error("Could not create payment QR. Try again.");
+  }
+
+  return {
+    amount: safeNumber(data.amount),
+    cartSessionId,
+    currency: normalizeOptionalString(data.currency) ?? "EGP",
+    paymentStatus: normalizeOptionalString(data.paymentStatus) ?? "PENDING",
+    paymentUrl: normalizeOptionalString(data.paymentUrl) ?? qrValue,
+    qrValue,
+    receiptId
+  };
+}
+
+function normalizePaymentStatusResponse(payload: unknown, requestedReceiptId: string): CartoPaymentStatusData {
+  const data = asRecord(payload);
+  if (!data) {
+    throw new Error("Could not load payment status. Retrying...");
+  }
+
+  const paymentStatus = normalizeOptionalString(data.paymentStatus);
+  if (!paymentStatus) {
+    throw new Error("Could not load payment status. Retrying...");
+  }
+
+  return {
+    amount: safeNumber(data.amount),
+    cartSessionId: normalizeOptionalString(data.cartSessionId),
+    currency: normalizeOptionalString(data.currency) ?? "EGP",
+    paymentStatus,
+    paymentUrl: normalizeOptionalString(data.paymentUrl),
+    qrValue: normalizeOptionalString(data.qrValue),
+    receiptId: normalizeOptionalString(data.receiptId) ?? requestedReceiptId
+  };
 }
 
 export function getCartoErrorKind(error: unknown): "auth" | "cart_not_found" | "cors" | "network" | "response" {

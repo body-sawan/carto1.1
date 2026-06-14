@@ -48,7 +48,7 @@ https://cartovercel1.vercel.app
 Cart code:
 
 ```text
-CART-001
+cart-01
 ```
 
 Device secret:
@@ -61,7 +61,7 @@ Demo carto env example:
 
 ```env
 EXPO_PUBLIC_CART_SCREEN_BACKEND_MODE=carto
-EXPO_PUBLIC_CART_CODE=CART-001
+EXPO_PUBLIC_CART_CODE=cart-01
 EXPO_PUBLIC_DEVICE_SECRET=dev-device-secret
 EXPO_PUBLIC_CARTO_API_BASE_URL=https://cartovercel1.vercel.app
 EXPO_PUBLIC_CARTO_WEB_BASE_URL=https://cartovercel1.vercel.app
@@ -73,9 +73,9 @@ Notes:
 - The phone can open `/auth/signin` manually, but the cart app base URL must stay the root domain only
 - The cart app must not call `/api/cart/link`
 - The cart app must not ask for `DATABASE_URL` or connect directly to Neon/PostgreSQL
-- Demo reset exists at `POST /api/carts/CART-001/reset` for admin recovery only, not for normal cart flow
+- Demo reset exists at `POST /api/carts/cart-01/reset` for admin recovery only, not for normal cart flow
 - Optional device readiness debug page:
-  `https://cartovercel1.vercel.app/api/demo/device-readiness?cartCode=CART-001`
+  `https://cartovercel1.vercel.app/api/demo/device-readiness?cartCode=cart-01`
 
 ## Mazen API Notes
 
@@ -107,7 +107,7 @@ The cart app always unwraps `data`.
 Real-device QR endpoint used by the cart screen:
 
 ```text
-GET /api/carts/CART-001/qrcode
+GET /api/carts/cart-01/qrcode
 Authorization: Bearer DEVICE_SECRET
 ```
 
@@ -119,7 +119,7 @@ QR response shape:
   "data": {
     "payload": {
       "type": "cart_pairing",
-      "cartCode": "CART-001",
+      "cartCode": "cart-01",
       "pairingCode": "PAIR-123"
     },
     "qrValue": "https://...",
@@ -137,7 +137,7 @@ The screen displays `data.qrValue` in the QR component and preserves:
 Real-device active-session endpoint:
 
 ```text
-GET /api/carts/CART-001/active-session
+GET /api/carts/cart-01/active-session
 Authorization: Bearer DEVICE_SECRET
 ```
 
@@ -148,7 +148,7 @@ Typical waiting response:
   "success": true,
   "data": {
     "active": false,
-    "cartCode": "CART-001",
+    "cartCode": "cart-01",
     "cartStatus": "AVAILABLE",
     "status": "waiting"
   }
@@ -162,7 +162,7 @@ Typical active response:
   "success": true,
   "data": {
     "active": true,
-    "cartCode": "CART-001",
+    "cartCode": "cart-01",
     "cartStatus": "IN_USE",
     "sessionId": "SESSION-123",
     "cartSessionId": "CARTSESSION-123",
@@ -202,7 +202,7 @@ POST /api/cart/link
 Older/simple endpoint that exists but is not preferred for the real device:
 
 ```text
-GET /api/cart/qrcode?cartCode=CART-001
+GET /api/cart/qrcode?cartCode=cart-01
 ```
 
 The cart screen must not use that public/simple endpoint in `carto` mode.
@@ -210,7 +210,7 @@ The cart screen must not use that public/simple endpoint in `carto` mode.
 Optional debug readiness endpoint:
 
 ```text
-GET /api/demo/device-readiness?cartCode=CART-001
+GET /api/demo/device-readiness?cartCode=cart-01
 ```
 
 This route is only for debugging and must not be required by the app.
@@ -219,11 +219,12 @@ It reports backend status, database status, cart readiness, active-session prese
 Write endpoints:
 
 ```text
-POST /api/carts/CART-001/items
-POST /api/carts/CART-001/items/remove
-POST /api/carts/CART-001/checkout
-POST /api/carts/CART-001/close-session
-POST /api/carts/CART-001/reset
+POST /api/carts/cart-01/items
+POST /api/carts/cart-01/items/remove
+POST /api/carts/cart-01/payment-qr
+GET /api/carts/cart-01/payment-status?receiptId=...
+POST /api/carts/cart-01/disconnect
+POST /api/carts/cart-01/reset
 ```
 
 All authenticated carto requests use:
@@ -246,7 +247,7 @@ Carto mode with Mazen backend:
 
 ```env
 EXPO_PUBLIC_CART_SCREEN_BACKEND_MODE=carto
-EXPO_PUBLIC_CART_CODE=CART-001
+EXPO_PUBLIC_CART_CODE=cart-01
 EXPO_PUBLIC_DEVICE_SECRET=dev-device-secret
 EXPO_PUBLIC_CARTO_API_BASE_URL=https://cartovercel1.vercel.app
 EXPO_PUBLIC_CARTO_WEB_BASE_URL=https://cartovercel1.vercel.app
@@ -255,7 +256,7 @@ EXPO_PUBLIC_CARTO_WEB_BASE_URL=https://cartovercel1.vercel.app
 What each carto variable does:
 
 - `EXPO_PUBLIC_CART_SCREEN_BACKEND_MODE=carto` switches the screen into Mazen-backend mode
-- `EXPO_PUBLIC_CART_CODE` identifies the physical cart, such as `CART-001`
+- `EXPO_PUBLIC_CART_CODE` identifies the physical cart, such as `cart-01`
 - `EXPO_PUBLIC_DEVICE_SECRET` is the device bearer token used for authenticated cart requests
 - `EXPO_PUBLIC_CARTO_API_BASE_URL` is the Mazen backend base URL used by the device
 - `EXPO_PUBLIC_CARTO_WEB_BASE_URL` is the browser-facing base URL used when building or displaying pairing links
@@ -386,7 +387,7 @@ Example:
 
 ```env
 EXPO_PUBLIC_CART_SCREEN_BACKEND_MODE=carto
-EXPO_PUBLIC_CART_CODE=CART-001
+EXPO_PUBLIC_CART_CODE=cart-01
 EXPO_PUBLIC_DEVICE_SECRET=dev-device-secret
 EXPO_PUBLIC_CARTO_API_BASE_URL=https://invalid.example
 EXPO_PUBLIC_CARTO_WEB_BASE_URL=https://cartovercel1.vercel.app
@@ -402,9 +403,9 @@ Verify:
 
 Verify:
 
-- QR request hits `GET /api/carts/CART-001/qrcode`
+- QR request hits `GET /api/carts/cart-01/qrcode`
 - QR request includes `Authorization: Bearer DEVICE_SECRET`
-- QR request does not use `GET /api/cart/qrcode?cartCode=CART-001`
+- QR request does not use `GET /api/cart/qrcode?cartCode=cart-01`
 - the screen displays the returned `data.qrValue`
 - active-session requests include `Authorization: Bearer DEVICE_SECRET`
 - waiting responses keep the QR screen visible
@@ -412,53 +413,61 @@ Verify:
 - the screen keeps polling after the session becomes active
 - temporary active-session request failures do not clear an already active shopping session
 - an explicit backend `waiting` response clears stale active data and returns the screen to QR or welcome state
-- add item calls `/api/carts/CART-001/items`
-- remove item calls `/api/carts/CART-001/items/remove`
-- checkout calls `/api/carts/CART-001/checkout`
-- close session calls `/api/carts/CART-001/close-session`
+- add item calls `/api/carts/cart-01/items`
+- remove item calls `/api/carts/cart-01/items/remove`
+- payment QR calls `POST /api/carts/cart-01/payment-qr`
+- payment status calls `GET /api/carts/cart-01/payment-status?receiptId=...`
+- close session calls `/api/carts/cart-01/disconnect`
 - the cart app does not call `/api/cart/link`
-- Close Session shows the confirmation modal before sending `/api/carts/CART-001/close-session`
+- Close Session shows the confirmation modal before sending `/api/carts/cart-01/disconnect`
 - cart item totals never become `NaN`
-- if the cart gets stuck for demo purposes, `POST /api/carts/CART-001/reset` can be used manually for admin recovery
+- if the cart gets stuck for demo purposes, `POST /api/carts/cart-01/reset` can be used manually for admin recovery
 
 Example curl checks:
 
 ```bash
 curl -H "Authorization: Bearer dev-device-secret" \
-  "https://cartovercel1.vercel.app/api/carts/CART-001/qrcode"
+  "https://cartovercel1.vercel.app/api/carts/cart-01/qrcode"
 ```
 
 ```bash
 curl -H "Authorization: Bearer dev-device-secret" \
-  "https://cartovercel1.vercel.app/api/carts/CART-001/active-session"
+  "https://cartovercel1.vercel.app/api/carts/cart-01/active-session"
 ```
 
 ```bash
-curl -X POST "https://cartovercel1.vercel.app/api/carts/CART-001/items" \
+curl -X POST "https://cartovercel1.vercel.app/api/carts/cart-01/items" \
   -H "Authorization: Bearer dev-device-secret" \
   -H "Content-Type: application/json" \
   -d '{"name":"Coca Cola","price":35,"quantity":1,"category":"Drinks"}'
 ```
 
 ```bash
-curl -X POST "https://cartovercel1.vercel.app/api/carts/CART-001/items/remove" \
+curl -X POST "https://cartovercel1.vercel.app/api/carts/cart-01/items/remove" \
   -H "Authorization: Bearer dev-device-secret" \
   -H "Content-Type: application/json" \
   -d '{"name":"Coca Cola","quantity":1}'
 ```
 
 ```bash
-curl -X POST "https://cartovercel1.vercel.app/api/carts/CART-001/checkout" \
+curl -X POST "https://cartovercel1.vercel.app/api/carts/cart-01/payment-qr" \
+  -H "Authorization: Bearer dev-device-secret" \
+  -H "Content-Type: application/json" \
+  -d "{\"cartSessionId\":\"YOUR_CART_SESSION_ID\",\"receiptId\":\"YOUR_RECEIPT_ID\"}"
+```
+
+```bash
+curl -H "Authorization: Bearer dev-device-secret" \
+  "https://cartovercel1.vercel.app/api/carts/cart-01/payment-status?receiptId=YOUR_RECEIPT_ID"
+```
+
+```bash
+curl -X POST "https://cartovercel1.vercel.app/api/carts/cart-01/disconnect" \
   -H "Authorization: Bearer dev-device-secret"
 ```
 
 ```bash
-curl -X POST "https://cartovercel1.vercel.app/api/carts/CART-001/close-session" \
-  -H "Authorization: Bearer dev-device-secret"
-```
-
-```bash
-curl "https://cartovercel1.vercel.app/api/demo/device-readiness?cartCode=CART-001"
+curl "https://cartovercel1.vercel.app/api/demo/device-readiness?cartCode=cart-01"
 ```
 
 ## CORS Note
@@ -470,3 +479,4 @@ CART_DEVICE_ALLOWED_ORIGINS=[http://localhost:8081,http://localhost:19006,https:
 ```
 
 Native apps and Raspberry Pi device clients usually do not need browser CORS.
+
