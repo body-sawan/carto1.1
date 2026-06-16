@@ -53,7 +53,24 @@ export function useCartoPaymentStatus(enabled: boolean) {
         || currentPaymentSession.status === "success"
         || currentPaymentSession.status === "failed"
         || (!currentPaymentSession.qrValue && !currentPaymentSession.paymentUrl)
+        || !currentPaymentSession.receiptId
       ) {
+        return;
+      }
+
+      if (isPaymentQrExpired(currentPaymentSession.expiresAt)) {
+        const expiredPaymentSession = {
+          ...currentPaymentSession,
+          errorMessage: "Payment QR expired. Generate a new QR to continue.",
+          paymentStatus: "EXPIRED",
+          status: "failed"
+        } as const;
+
+        setPaymentSession(expiredPaymentSession);
+        const currentSnapshot = useCartUiStore.getState().snapshot;
+        if (currentSnapshot) {
+          setSnapshot(applyPaymentSessionToSnapshot(currentSnapshot, expiredPaymentSession));
+        }
         return;
       }
 
@@ -70,7 +87,9 @@ export function useCartoPaymentStatus(enabled: boolean) {
         const normalizedPaymentStatus = data.paymentStatus.toUpperCase();
         const nextStatus = normalizedPaymentStatus.includes("PAID") || normalizedPaymentStatus.includes("COMPLETE")
           ? "success"
-          : normalizedPaymentStatus.includes("FAIL") || normalizedPaymentStatus.includes("CANCEL")
+          : normalizedPaymentStatus.includes("FAIL")
+            || normalizedPaymentStatus.includes("CANCEL")
+            || normalizedPaymentStatus.includes("EXPIRED")
             ? "failed"
             : "pending";
 
@@ -79,7 +98,9 @@ export function useCartoPaymentStatus(enabled: boolean) {
           amount: data.amount && data.amount > 0 ? data.amount : currentPaymentSession.amount,
           cartSessionId: data.cartSessionId || currentPaymentSession.cartSessionId,
           currency: data.currency || currentPaymentSession.currency,
-          errorMessage: null,
+          errorMessage: nextStatus === "failed" && normalizedPaymentStatus.includes("EXPIRED")
+            ? "Payment QR expired. Generate a new QR to continue."
+            : null,
           paymentStatus: data.paymentStatus,
           paymentUrl: data.paymentUrl || currentPaymentSession.paymentUrl,
           qrValue: data.qrValue || currentPaymentSession.qrValue,
@@ -130,4 +151,13 @@ export function useCartoPaymentStatus(enabled: boolean) {
       inFlightRef.current = false;
     };
   }, [enabled, hasPaymentQr, paymentSession, setPaymentSession, setSnapshot]);
+}
+
+function isPaymentQrExpired(expiresAt: string | null | undefined) {
+  if (!expiresAt) {
+    return false;
+  }
+
+  const expiryTime = Date.parse(expiresAt);
+  return Number.isFinite(expiryTime) && expiryTime <= Date.now();
 }

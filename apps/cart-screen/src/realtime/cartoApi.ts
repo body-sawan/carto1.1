@@ -1,5 +1,5 @@
 import type { CartSnapshot, PaymentStatus, ReceiptLine, ShoppingListItem, ShoppingListItemStatus } from "@carto/shared";
-import { CARTO_API_BASE_URL, CARTO_WEB_BASE_URL, CART_CODE, DEVICE_SECRET } from "./config";
+import { CARTO_API_BASE_URL, CARTO_WEB_BASE_URL, CART_CODE, DEVICE_SECRET, IS_DEV } from "./config";
 import { findCatalogProductById, getRegisteredCatalogProducts, normalizeRemoteProduct, registerCatalogProducts } from "./cartCatalog";
 
 interface ApiErrorShape {
@@ -45,38 +45,44 @@ export interface CartoItemActionPayload {
   quantity?: number;
 }
 
-export interface CartoCheckoutData {
-  alreadyFinished?: boolean;
-  cartCode: string;
-  cartSessionId?: string | null;
-  items?: CartoReceiptItem[];
-  note?: string;
-  paymentStatus?: string | null;
-  receiptId?: string | null;
-  sessionClosed?: boolean;
-  status?: string;
-  subtotal?: number;
-  tax?: number;
-  total?: number;
-}
-
 export interface CartoPaymentQrData {
   amount?: number;
+  amountCents?: number;
+  amountDisplay?: string | null;
   cartSessionId?: string | null;
   currency?: string | null;
+  expiresAt?: string | null;
+  paymentAttemptId?: string | null;
   paymentStatus?: string | null;
   paymentUrl?: string | null;
   qrValue?: string | null;
   receiptId?: string | null;
+  sessionId?: string | null;
+  type?: string | null;
+}
+
+export interface CartoPaymentQrItemPayload {
+  name: string;
+  quantity: number;
+  total: number;
+  unitPrice: number;
+}
+
+export interface CartoPaymentQrRequestPayload {
+  amount: number;
+  currency: string;
+  items: CartoPaymentQrItemPayload[];
 }
 
 export interface CartoPaymentStatusData {
   amount?: number;
   cartSessionId?: string | null;
   currency?: string | null;
+  paidAt?: string | null;
   paymentStatus: string;
   paymentUrl?: string | null;
   qrValue?: string | null;
+  receiptStatus?: string | null;
   receiptId: string;
 }
 
@@ -120,6 +126,7 @@ export interface CartoReceiptItem {
 }
 
 export interface CartoReceiptSummary {
+  currency?: string | null;
   id?: string | null;
   items?: CartoReceiptItem[] | null;
   paymentStatus?: string | null;
@@ -127,6 +134,14 @@ export interface CartoReceiptSummary {
   subtotal?: number | null;
   tax?: number | null;
   total?: number | null;
+}
+
+export interface CartoPaymentSummary {
+  amount?: number | null;
+  currency?: string | null;
+  paymentStatus?: string | null;
+  paymentUrl?: string | null;
+  receiptId?: string | null;
 }
 
 export interface CartoActiveSessionData {
@@ -140,6 +155,7 @@ export interface CartoActiveSessionData {
   cartSessionId: string;
   cartStatus?: string;
   list?: CartoShoppingListContainer | null;
+  payment?: CartoPaymentSummary | null;
   paymentStatus?: string | null;
   receipt?: CartoReceiptSummary | null;
   receiptId?: string | null;
@@ -338,17 +354,8 @@ export async function removeCartoItem(
   return mapActiveSessionToSnapshot(normalizeRequiredActiveSessionResponse(activePayload, cartCode), previousSnapshot);
 }
 
-export async function checkoutCarto(previousSnapshot: CartSnapshot | null): Promise<CartSnapshot> {
-  const cartCode = ensureCartCode();
-  const data = await requestCarto<CartoCheckoutData>(`/api/carts/${encodeURIComponent(cartCode)}/checkout`, {
-    body: JSON.stringify({}),
-    method: "POST"
-  });
-  return mapCheckoutResponseToSnapshot(data, previousSnapshot);
-}
-
-export async function requestPaymentQr(
-  payload: { cartSessionId: string; receiptId: string },
+export async function requestCartoPaymentQr(
+  payload: CartoPaymentQrRequestPayload,
   cartCode = CART_CODE
 ): Promise<CartoPaymentQrData> {
   if (!cartCode) {
@@ -356,27 +363,37 @@ export async function requestPaymentQr(
   }
 
   const requestPath = `/api/carts/${encodeURIComponent(cartCode)}/payment-qr`;
-  console.log("[cart-screen] payment QR request URL", buildAbsoluteUrl(requestPath));
-  console.log("[cart-screen] payment QR request meta", {
-    cartCode,
-    cartSessionId: payload.cartSessionId,
-    hasReceiptId: Boolean(payload.receiptId)
-  });
+  if (IS_DEV) {
+    console.log("[payment-qr] endpoint", requestPath);
+    console.log("[payment-qr] cartCode", cartCode);
+    console.log("[payment-qr] amount", payload.amount);
+    console.log("[payment-qr] currency", payload.currency);
+    console.log("[payment-qr] items count", payload.items.length);
+  }
 
   const data = await requestCarto<unknown>(requestPath, {
     body: JSON.stringify(payload),
     cache: "no-store",
     method: "POST",
     onResponse: ({ payload: responsePayload, status }) => {
-      console.log("[cart-screen] payment QR status code", status);
-      console.log("[cart-screen] payment QR response", responsePayload);
+      if (IS_DEV) {
+        console.log("[payment-qr] status code", status);
+        console.log("[payment-qr] response summary", summarizePaymentQrResponsePayload(responsePayload));
+      }
     }
   });
 
   return normalizePaymentQrResponse(data);
 }
 
-export async function fetchPaymentStatus(
+export async function requestPaymentQr(
+  payload: CartoPaymentQrRequestPayload,
+  cartCode = CART_CODE
+) {
+  return requestCartoPaymentQr(payload, cartCode);
+}
+
+export async function fetchCartoPaymentStatus(
   receiptId: string,
   cartCode = CART_CODE,
   signal?: AbortSignal
@@ -405,7 +422,15 @@ export async function fetchPaymentStatus(
   return normalizePaymentStatusResponse(data, receiptId);
 }
 
-export async function disconnectCart(cartCode = CART_CODE) {
+export async function fetchPaymentStatus(
+  receiptId: string,
+  cartCode = CART_CODE,
+  signal?: AbortSignal
+) {
+  return fetchCartoPaymentStatus(receiptId, cartCode, signal);
+}
+
+export async function disconnectCartoSession(cartCode = CART_CODE) {
   if (!cartCode) {
     throw new Error("Cart code is missing. Set CART_CODE or EXPO_PUBLIC_CART_CODE.");
   }
@@ -423,9 +448,13 @@ export async function disconnectCart(cartCode = CART_CODE) {
   });
 }
 
+export async function disconnectCart(cartCode = CART_CODE) {
+  return disconnectCartoSession(cartCode);
+}
+
 export async function closeCartoSession(): Promise<CartSnapshot> {
   const cartCode = ensureCartCode();
-  await disconnectCart(cartCode);
+  await disconnectCartoSession(cartCode);
 
   let qrData: CartoQrData | null = null;
   try {
@@ -458,7 +487,7 @@ export async function checkoutCart(
   _deviceSecret = DEVICE_SECRET,
   _payload?: unknown
 ) {
-  return checkoutCarto(null);
+  throw new Error("Legacy device checkout endpoint has been removed. Use the payment QR flow instead.");
 }
 
 export async function closeCartSession(
@@ -585,10 +614,13 @@ export function mapActiveSessionToSnapshot(data: CartoActiveSessionData, previou
   const paymentStatus = mapActiveSessionPaymentStatus(data.paymentStatus);
   const snapshotState = mapSnapshotState(paymentStatus);
   const pairing = previousSnapshot?.pairing ?? null;
+  const resolvedSessionId = data.sessionId || data.session?.id || data.cartSessionId;
+  const resolvedCartSessionId = data.cartSessionId || data.sessionId || data.session?.id;
+  const resolvedReceiptId = data.receiptId ?? data.receipt?.id ?? data.payment?.receiptId ?? undefined;
 
   return {
     cartId: data.cartCode,
-    sessionId: data.sessionId,
+    sessionId: resolvedSessionId || null,
     state: snapshotState,
     pairing: {
       cartId: data.cartCode,
@@ -597,7 +629,7 @@ export function mapActiveSessionToSnapshot(data: CartoActiveSessionData, previou
       transport: "backend",
       expiresAt: pairing?.expiresAt
     },
-    activeListId: data.cartSessionId,
+    activeListId: resolvedCartSessionId,
     shoppingMode: "LIST",
     shoppingList,
     cartItems,
@@ -610,39 +642,7 @@ export function mapActiveSessionToSnapshot(data: CartoActiveSessionData, previou
     payment: {
       status: paymentStatus,
       amount: total,
-      transactionId: data.receiptId ?? undefined,
-      updatedAt: new Date().toISOString()
-    },
-    alerts: previousSnapshot?.alerts ?? []
-  };
-}
-
-export function mapCheckoutResponseToSnapshot(data: CartoCheckoutData, previousSnapshot: CartSnapshot | null): CartSnapshot {
-  const existingCartItems = previousSnapshot?.cartItems ?? [];
-  const subtotal = roundMoney(safeNumber(data.subtotal, previousSnapshot?.totals.subtotal ?? 0));
-  const tax = roundMoney(safeNumber(data.tax, previousSnapshot?.totals.tax ?? 0));
-  const total = roundMoney(safeNumber(data.total, previousSnapshot?.totals.total ?? subtotal + tax));
-  const paymentStatus = mapPaymentStatus(data.paymentStatus, total, existingCartItems.length);
-
-  return {
-    cartId: data.cartCode || previousSnapshot?.cartId || CART_CODE || "cart-01",
-    sessionId: previousSnapshot?.sessionId ?? null,
-    state: paymentStatus === "PAID" ? "PAID" : mapSnapshotState(paymentStatus),
-    pairing: previousSnapshot?.pairing ?? null,
-    activeListId: data.cartSessionId ?? previousSnapshot?.activeListId,
-    shoppingMode: previousSnapshot?.shoppingMode ?? "LIST",
-    shoppingList: previousSnapshot?.shoppingList ?? [],
-    cartItems: existingCartItems,
-    totals: {
-      subtotal,
-      discount: 0,
-      tax,
-      total
-    },
-    payment: {
-      status: paymentStatus === "NOT_STARTED" ? "PAID" : paymentStatus,
-      amount: total,
-      transactionId: data.receiptId ?? previousSnapshot?.payment.transactionId,
+      transactionId: resolvedReceiptId,
       updatedAt: new Date().toISOString()
     },
     alerts: previousSnapshot?.alerts ?? []
@@ -716,14 +716,15 @@ function normalizeActiveSessionResponse(
       cart: asMaybeCart(data.cart),
       cartCode: String(data.cartCode ?? cartCode),
       cartItems,
-      cartSessionId: String(data.cartSessionId ?? ""),
+      cartSessionId: readActiveCartSessionId(data) ?? "",
       cartStatus: typeof data.cartStatus === "string" ? data.cartStatus : undefined,
       list: shoppingList.fromList,
+      payment: asMaybePayment(data.payment),
       paymentStatus: typeof data.paymentStatus === "string" || data.paymentStatus === null ? data.paymentStatus as string | null : null,
       receipt: asMaybeReceipt(data.receipt),
-      receiptId: typeof data.receiptId === "string" || data.receiptId === null ? data.receiptId as string | null : null,
+      receiptId: readActiveReceiptId(data),
       session: asMaybeSession(data.session),
-      sessionId: String(data.sessionId ?? ""),
+      sessionId: readBackendSessionId(data) ?? readActiveCartSessionId(data) ?? "",
       shoppingList: shoppingList.fromShoppingList ?? shoppingList.fromList,
       status: "active",
       total: safeNumber(data.total)
@@ -948,18 +949,24 @@ function normalizePaymentQrResponse(payload: unknown): CartoPaymentQrData {
   const cartSessionId = normalizeOptionalString(data.cartSessionId);
   const qrValue = normalizeOptionalString(data.qrValue) ?? normalizeOptionalString(data.paymentUrl);
 
-  if (!receiptId || !cartSessionId || !qrValue) {
+  if (!receiptId || !qrValue) {
     throw new Error("Could not create payment QR. Try again.");
   }
 
   return {
     amount: safeNumber(data.amount),
+    amountCents: safeMaybeNumber(data.amountCents),
+    amountDisplay: normalizeOptionalString(data.amountDisplay),
     cartSessionId,
     currency: normalizeOptionalString(data.currency) ?? "EGP",
+    expiresAt: normalizeOptionalString(data.expiresAt),
+    paymentAttemptId: normalizeOptionalString(data.paymentAttemptId),
     paymentStatus: normalizeOptionalString(data.paymentStatus) ?? "PENDING",
     paymentUrl: normalizeOptionalString(data.paymentUrl) ?? qrValue,
     qrValue,
-    receiptId
+    receiptId,
+    sessionId: normalizeOptionalString(data.sessionId),
+    type: normalizeOptionalString(data.type)
   };
 }
 
@@ -978,9 +985,11 @@ function normalizePaymentStatusResponse(payload: unknown, requestedReceiptId: st
     amount: safeNumber(data.amount),
     cartSessionId: normalizeOptionalString(data.cartSessionId),
     currency: normalizeOptionalString(data.currency) ?? "EGP",
+    paidAt: normalizeOptionalString(data.paidAt),
     paymentStatus,
     paymentUrl: normalizeOptionalString(data.paymentUrl),
     qrValue: normalizeOptionalString(data.qrValue),
+    receiptStatus: normalizeOptionalString(data.receiptStatus),
     receiptId: normalizeOptionalString(data.receiptId) ?? requestedReceiptId
   };
 }
@@ -1064,6 +1073,7 @@ function asMaybeReceipt(value: unknown) {
   if (!record) return null;
 
   return {
+    currency: normalizeOptionalString(record.currency),
     id: normalizeOptionalString(record.id),
     items: Array.isArray(record.items) ? record.items as CartoReceiptItem[] : [],
     paymentStatus: normalizeOptionalString(record.paymentStatus),
@@ -1074,8 +1084,64 @@ function asMaybeReceipt(value: unknown) {
   } satisfies CartoReceiptSummary;
 }
 
+function asMaybePayment(value: unknown) {
+  const record = asRecord(value);
+  if (!record) return null;
+
+  return {
+    amount: safeMaybeNumber(record.amount),
+    currency: normalizeOptionalString(record.currency),
+    paymentStatus: normalizeOptionalString(record.status) ?? normalizeOptionalString(record.paymentStatus),
+    paymentUrl: normalizeOptionalString(record.paymentUrl),
+    receiptId: normalizeOptionalString(record.receiptId)
+  } satisfies CartoPaymentSummary;
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? value as Record<string, unknown> : null;
+}
+
+function readBackendSessionId(data: Record<string, unknown>) {
+  return normalizeOptionalString(data.sessionId) ?? asMaybeSession(data.session)?.id ?? null;
+}
+
+function readActiveCartSessionId(data: Record<string, unknown>) {
+  return normalizeOptionalString(data.cartSessionId) ?? readBackendSessionId(data);
+}
+
+function readActiveReceiptId(data: Record<string, unknown>) {
+  if (typeof data.receiptId === "string" || data.receiptId === null) {
+    return data.receiptId as string | null;
+  }
+
+  return asMaybeReceipt(data.receipt)?.id
+    ?? asMaybePayment(data.payment)?.receiptId
+    ?? null;
+}
+
+function summarizePaymentQrResponsePayload(payload: unknown) {
+  const record = asRecord(payload);
+  if (!record) {
+    return {
+      hasPayload: false
+    };
+  }
+
+  const data = asRecord(record.data) ?? record;
+  const error = asRecord(record.error);
+
+  return {
+    errorCode: normalizeOptionalString(error?.code) ?? normalizeOptionalString(record.code),
+    errorMessage: normalizeOptionalString(error?.message)
+      ?? normalizeOptionalString(error?.error)
+      ?? normalizeOptionalString(record.message)
+      ?? normalizeOptionalString(record.error),
+    hasCartSessionId: Boolean(normalizeOptionalString(data.cartSessionId)),
+    hasPayload: true,
+    hasQrValue: Boolean(normalizeOptionalString(data.qrValue) ?? normalizeOptionalString(data.paymentUrl)),
+    hasReceiptId: Boolean(normalizeOptionalString(data.receiptId)),
+    success: typeof record.success === "boolean" ? record.success : null
+  };
 }
 
 function buildShoppingListMatchKey(name: string | null | undefined, category: string | null | undefined) {

@@ -262,8 +262,8 @@ export function useCartoActiveSession(enabled: boolean) {
           const hasStalePaymentSession = Boolean(
             paymentSession
             && (
-              paymentSession.cartSessionId !== result.data.cartSessionId
-              || paymentSession.receiptId !== (result.data.receiptId ?? "")
+              paymentSession.cartSessionId !== getActiveCartSessionId(result.data)
+              || paymentSession.receiptId !== getActiveReceiptId(result.data)
             )
           );
 
@@ -371,4 +371,20 @@ function parseTimestamp(value: string | null | undefined) {
 
   const timestamp = Date.parse(value);
   return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function getActiveReceiptId(data: {
+  receiptId?: string | null;
+  receipt?: { id?: string | null } | null;
+  payment?: { receiptId?: string | null } | null;
+}) {
+  return data.receiptId ?? data.receipt?.id ?? data.payment?.receiptId ?? "";
+}
+
+function getActiveCartSessionId(data: {
+  cartSessionId?: string | null;
+  sessionId?: string | null;
+  session?: { id?: string | null } | null;
+}) {
+  return data.cartSessionId ?? data.sessionId ?? data.session?.id ?? "";
 }

@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -60,25 +61,44 @@ export function CheckoutScreen({
   const receiptId = paymentSession?.receiptId ?? snapshot?.payment.transactionId;
   const paymentAmount = paymentSession?.amount ?? snapshot?.totals.total ?? 0;
   const paymentCurrency = paymentSession?.currency ?? "EGP";
+  const paymentAmountDisplay = paymentSession?.amountDisplay ?? formatCurrency(paymentAmount, language, paymentCurrency);
   const paymentQrValue = paymentSession?.qrValue ?? paymentSession?.paymentUrl ?? "";
   const paymentStatusLabel = paymentSession?.paymentStatus ?? snapshot?.payment.status ?? "Unavailable";
   const paymentErrorMessage = paymentSession?.errorMessage;
   const receiptReady = Boolean(receiptId);
   const totalIsZero = paymentAmount <= 0;
+  const [now, setNow] = useState(() => Date.now());
+  const paymentQrExpired = isExpiredTimestamp(paymentSession?.expiresAt, now);
+  const paymentExpiryLabel = formatExpiryCountdown(paymentSession?.expiresAt, now);
   const canStartCheckout = usesBackendPaymentQr
-    ? connected && state === "SHOPPING" && cartItems.length > 0 && receiptReady && !totalIsZero
+    ? connected && state === "SHOPPING" && cartItems.length > 0 && !totalIsZero
     : connected && state === "SHOPPING" && cartItems.length > 0;
   const showReturn = state !== "PAID" && state !== "WAITING_FOR_LIST" && state !== "SESSION_CLOSED";
   const showDisconnectButton = usesBackendPaymentQr && state !== "PAID";
   const helperText = getCheckoutHelperText({
+    paymentQrExpired,
     paymentErrorMessage,
     paymentQrValue,
-    receiptReady,
     state,
     strings,
     totalIsZero,
     usesBackendPaymentQr
   });
+
+  useEffect(() => {
+    if (!paymentSession?.expiresAt) {
+      return undefined;
+    }
+
+    setNow(Date.now());
+    const timer = setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+
+    return () => {
+      clearInterval(timer);
+    };
+  }, [paymentSession?.expiresAt]);
 
   return (
     <View style={styles.root}>
@@ -225,14 +245,35 @@ export function CheckoutScreen({
             <View style={styles.placeholderHeader}>
               <Receipt size={18} color={theme.textPrimary} />
               <Text style={[styles.placeholderTitle, { color: theme.textPrimary, fontSize: scaleSize(14, textScale) }]}>
-                {usesBackendPaymentQr ? strings.scanToPay : state === "PAID" ? strings.receiptReady : strings.receiptPlaceholder}
+                {usesBackendPaymentQr ? "Secure payment QR" : state === "PAID" ? strings.receiptReady : strings.receiptPlaceholder}
               </Text>
             </View>
             <View style={[styles.qrPlaceholder, { backgroundColor: theme.cardMuted, borderColor: theme.border }]}>
               {usesBackendPaymentQr && paymentQrValue ? (
-                <QRCode key={paymentQrValue} size={190} value={paymentQrValue} />
+                <View style={styles.qrCanvas}>
+                  <QRCode
+                    backgroundColor="#ffffff"
+                    color="#111111"
+                    key={paymentQrValue}
+                    size={220}
+                    value={paymentQrValue}
+                  />
+                </View>
               ) : state === "PAID" ? (
                 <CheckCircle2 size={56} color={theme.success} />
+              ) : usesBackendPaymentQr && (paymentErrorMessage || paymentQrExpired || state === "PAYMENT_FAILED") ? (
+                <View style={styles.placeholderErrorState}>
+                  <AlertTriangle size={42} color={theme.error} />
+                  <Text style={[styles.placeholderErrorText, { color: theme.error, fontSize: scaleSize(13, textScale) }]}>
+                    {paymentErrorMessage || (paymentQrExpired ? "Payment QR expired. Generate a new QR to continue." : strings.paymentQrError)}
+                  </Text>
+                </View>
+              ) : usesBackendPaymentQr ? (
+                <View style={styles.placeholderPendingState}>
+                  <Text style={[styles.placeholderPendingText, { color: theme.textSecondary, fontSize: scaleSize(13, textScale) }]}>
+                    Generating secure payment QR...
+                  </Text>
+                </View>
               ) : (
                 <QrCode size={46} color={theme.accent} />
               )}
@@ -240,20 +281,38 @@ export function CheckoutScreen({
             <Text style={[styles.placeholderMessage, { color: theme.textSecondary, fontSize: scaleSize(13, textScale) }]}>
               {helperText}
             </Text>
+            {usesBackendPaymentQr ? (
+              <View style={styles.paymentMetaStack}>
+                <Text style={[styles.paymentMetaText, { color: theme.textPrimary, fontSize: scaleSize(15, textScale) }]}>
+                  {paymentAmountDisplay}
+                </Text>
+                <Text style={[styles.paymentMetaText, { color: theme.textSecondary, fontSize: scaleSize(12, textScale) }]}>
+                  Status: {paymentStatusLabel}
+                </Text>
+                {paymentExpiryLabel ? (
+                  <Text style={[styles.paymentMetaText, { color: paymentQrExpired ? theme.error : theme.textSecondary, fontSize: scaleSize(12, textScale) }]}>
+                    {paymentQrExpired ? "Expired" : `Expires in ${paymentExpiryLabel}`}
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
           </View>
 
           <View style={styles.sideSummary}>
             <SummaryRow label={strings.cartItems} value={`${totalQuantity}`} textScale={textScale} theme={theme} />
             <SummaryRow label={strings.paymentStatus} value={paymentStatusLabel} textScale={textScale} theme={theme} />
             <SummaryRow label="Receipt ID" value={receiptId ?? "Unavailable"} textScale={textScale} theme={theme} />
-            <SummaryRow label={strings.total} value={formatCurrency(paymentAmount, language, paymentCurrency)} textScale={textScale} strong theme={theme} />
+            <SummaryRow label={strings.total} value={paymentAmountDisplay} textScale={textScale} strong theme={theme} />
+            {paymentExpiryLabel ? (
+              <SummaryRow label="Expires" value={paymentQrExpired ? "Expired" : paymentExpiryLabel} textScale={textScale} theme={theme} />
+            ) : null}
           </View>
 
           <View style={styles.buttonStack}>
             {(state === "SHOPPING" || state === "CHECKOUT_PENDING") ? (
                 <PrimaryButton
                   disabled={!canStartCheckout}
-                  label={usesBackendPaymentQr ? strings.generatePaymentQr : strings.confirmCheckout}
+                  label={usesBackendPaymentQr && (paymentErrorMessage || paymentQrExpired) ? strings.retryPayment : usesBackendPaymentQr ? strings.generatePaymentQr : strings.confirmCheckout}
                   onPress={onConfirmCheckout}
                   textScale={textScale}
                   theme={theme}
@@ -296,6 +355,16 @@ export function CheckoutScreen({
                   />
                 ) : null}
               </>
+            ) : null}
+
+            {usesBackendPaymentQr && (paymentErrorMessage || paymentQrExpired) && state !== "PAYMENT_FAILED" && state !== "SHOPPING" && state !== "CHECKOUT_PENDING" ? (
+              <PrimaryButton
+                disabled={!connected}
+                label={strings.retryPayment}
+                onPress={onRetryPayment}
+                textScale={textScale}
+                theme={theme}
+              />
             ) : null}
 
             {showDisconnectButton ? (
@@ -422,17 +491,17 @@ function getStatusIcon(state: string | undefined) {
 }
 
 function getCheckoutHelperText({
+  paymentQrExpired,
   paymentErrorMessage,
   paymentQrValue,
-  receiptReady,
   state,
   strings,
   totalIsZero,
   usesBackendPaymentQr
 }: {
+  paymentQrExpired: boolean;
   paymentErrorMessage: string | null | undefined;
   paymentQrValue: string;
-  receiptReady: boolean;
   state: string | undefined;
   strings: AppStrings;
   totalIsZero: boolean;
@@ -450,19 +519,46 @@ function getCheckoutHelperText({
     return paymentErrorMessage || strings.paymentQrError;
   }
 
-  if (paymentQrValue) {
-    return state === "WAITING_PAYMENT" ? strings.paymentWaitingMessage : strings.scanToPay;
+  if (paymentQrExpired) {
+    return "Payment QR expired. Generate a new QR to continue.";
   }
 
-  if (!receiptReady) {
-    return strings.receiptNotReadyMessage;
+  if (paymentQrValue) {
+    return "Scan this QR with your phone to continue checkout.";
   }
 
   if (totalIsZero) {
-    return strings.paymentZeroTotal;
+    return "Receipt total must be greater than 0 before generating payment QR.";
   }
 
   return paymentErrorMessage || strings.checkoutSubtitle;
+}
+
+function formatExpiryCountdown(expiresAt: string | null | undefined, now: number) {
+  if (!expiresAt) {
+    return null;
+  }
+
+  const expiresAtMs = Date.parse(expiresAt);
+  if (!Number.isFinite(expiresAtMs)) {
+    return null;
+  }
+
+  const remainingMs = Math.max(0, expiresAtMs - now);
+  const totalSeconds = Math.floor(remainingMs / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function isExpiredTimestamp(expiresAt: string | null | undefined, now: number) {
+  if (!expiresAt) {
+    return false;
+  }
+
+  const expiresAtMs = Date.parse(expiresAt);
+  return Number.isFinite(expiresAtMs) && expiresAtMs <= now;
 }
 
 const styles = StyleSheet.create({
@@ -642,15 +738,47 @@ const styles = StyleSheet.create({
     fontWeight: "800"
   },
   qrPlaceholder: {
-    minHeight: 180,
+    minHeight: 244,
     borderRadius: 18,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center"
   },
+  qrCanvas: {
+    backgroundColor: "#ffffff",
+    borderRadius: 18,
+    padding: 14
+  },
+  placeholderErrorState: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    paddingHorizontal: 16
+  },
+  placeholderPendingState: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 18
+  },
+  placeholderPendingText: {
+    fontWeight: "700",
+    lineHeight: 20,
+    textAlign: "center"
+  },
+  placeholderErrorText: {
+    fontWeight: "800",
+    lineHeight: 20,
+    textAlign: "center"
+  },
   placeholderMessage: {
     fontWeight: "700",
     lineHeight: 20
+  },
+  paymentMetaStack: {
+    gap: 4
+  },
+  paymentMetaText: {
+    fontWeight: "800"
   },
   sideSummary: {
     gap: 10

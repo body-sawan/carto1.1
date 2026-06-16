@@ -25,9 +25,12 @@ export type CartPaymentFlowStatus = "idle" | "creating" | "pending" | "success" 
 
 export interface CartPaymentSession {
   amount: number;
+  amountDisplay?: string;
   cartSessionId: string;
   currency: string;
   errorMessage?: string | null;
+  expiresAt?: string | null;
+  paymentAttemptId?: string;
   paymentStatus: string;
   paymentUrl: string;
   qrValue: string;

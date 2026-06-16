@@ -1,16 +1,18 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useCartUiStore } from "../store/cartUiStore";
-import { CART_SCREEN_BACKEND_MODE } from "./config";
+import { CART_CODE, CART_SCREEN_BACKEND_MODE, IS_DEV } from "./config";
 import {
   addCartoItem,
   applyPaymentSessionToSnapshot,
   buildWaitingSnapshot,
-  closeCartoSession,
+  getActiveSession,
+  disconnectCartoSession,
   getCartQrCode,
-  requestPaymentQr,
+  requestCartoPaymentQr,
   removeCartoItem,
   resetMockOnlineSession
 } from "./cartoApi";
+import type { CartoActiveSessionData, CartoPaymentQrItemPayload } from "./cartoApi";
 import {
   cancelLocalGuestCheckout,
   confirmLocalGuestPayment,
@@ -104,7 +106,7 @@ export function useCartRuntime(): RuntimeActions {
       cancelCheckout: async () => {
         if (!isLocalGuest) {
           clearPaymentSession();
-          const waitingSnapshot = await closeCartoSession();
+          const waitingSnapshot = await disconnectAndBuildWaitingSnapshot(snapshotRef.current);
           setConnected(true);
           setBackendStatus("waiting");
           setListStatus("waiting", 0);
@@ -186,7 +188,7 @@ export function useCartRuntime(): RuntimeActions {
         clearPaymentSession();
         const hasBackendSession = Boolean(snapshotRef.current?.sessionId && snapshotRef.current?.state !== "WAITING_FOR_LIST");
         let waitingSnapshot = hasBackendSession
-          ? await closeCartoSession()
+          ? await disconnectAndBuildWaitingSnapshot(snapshotRef.current)
           : buildWaitingSnapshot(snapshotRef.current?.cartId);
 
         if (!hasBackendSession) {
@@ -206,69 +208,8 @@ export function useCartRuntime(): RuntimeActions {
       },
       retryPayment: async () => {
         if (!isLocalGuest) {
-          const currentSnapshot = snapshotRef.current;
-          if (!currentSnapshot) {
-            throw new Error("No active backend session is available for payment.");
-          }
-
-          const cartSessionId = currentSnapshot.activeListId;
-          const receiptId = currentSnapshot.payment.transactionId;
-          const amount = currentSnapshot.totals.total;
-
-          if (!receiptId) {
-            throw new Error("Receipt is not ready yet.");
-          }
-
-          if (!cartSessionId) {
-            throw new Error("No active backend session is available for payment.");
-          }
-
-          if (amount <= 0) {
-            throw new Error("Payment cannot start because the receipt total is 0.");
-          }
-
-          const creatingPaymentSession = {
-            amount,
-            cartSessionId,
-            currency: "EGP",
-            errorMessage: null,
-            paymentStatus: "PENDING",
-            paymentUrl: "",
-            qrValue: "",
-            receiptId,
-            status: "creating"
-          } as const;
-
-          setPaymentSession(creatingPaymentSession);
-
-          try {
-            const paymentQr = await requestPaymentQr({ cartSessionId, receiptId });
-            const nextPaymentSession = {
-              amount: paymentQr.amount && paymentQr.amount > 0 ? paymentQr.amount : amount,
-              cartSessionId: paymentQr.cartSessionId || cartSessionId,
-              currency: paymentQr.currency || "EGP",
-              errorMessage: null,
-              paymentStatus: paymentQr.paymentStatus || "PENDING",
-              paymentUrl: paymentQr.paymentUrl || paymentQr.qrValue || "",
-              qrValue: paymentQr.qrValue || paymentQr.paymentUrl || "",
-              receiptId: paymentQr.receiptId || receiptId,
-              status: "pending"
-            } as const;
-
-            setPaymentSession(nextPaymentSession);
-            setSnapshot(applyPaymentSessionToSnapshot(currentSnapshot, nextPaymentSession));
-            return;
-          } catch (error) {
-            const failedPaymentSession = {
-              ...creatingPaymentSession,
-              errorMessage: error instanceof Error ? error.message : "Could not create payment QR. Try again.",
-              status: "failed"
-            } as const;
-
-            setPaymentSession(failedPaymentSession);
-            setSnapshot(applyPaymentSessionToSnapshot(currentSnapshot, failedPaymentSession));
-            throw error;
-          }
+          await createBackendPaymentSession();
+          return;
         }
         retryLocalGuestPayment();
       },
@@ -283,72 +224,7 @@ export function useCartRuntime(): RuntimeActions {
           throw new Error("No active backend session is available for checkout.");
         }
 
-        await (async () => {
-          const currentSnapshot = snapshotRef.current;
-          if (!currentSnapshot) {
-            throw new Error("No active backend session is available for payment.");
-          }
-
-          const cartSessionId = currentSnapshot.activeListId;
-          const receiptId = currentSnapshot.payment.transactionId;
-          const amount = currentSnapshot.totals.total ?? 0;
-
-          if (!receiptId) {
-            throw new Error("Receipt is not ready yet.");
-          }
-
-          if (!cartSessionId) {
-            throw new Error("No active backend session is available for payment.");
-          }
-
-          if (amount <= 0) {
-            throw new Error("Payment cannot start because the receipt total is 0.");
-          }
-
-          const creatingPaymentSession = {
-            amount,
-            cartSessionId,
-            currency: "EGP",
-            errorMessage: null,
-            paymentStatus: "PENDING",
-            paymentUrl: "",
-            qrValue: "",
-            receiptId,
-            status: "creating"
-          } as const;
-
-          setPaymentSession(creatingPaymentSession);
-
-          try {
-            const paymentQr = await requestPaymentQr({ cartSessionId, receiptId });
-            const nextPaymentSession = {
-              amount: paymentQr.amount && paymentQr.amount > 0 ? paymentQr.amount : amount,
-              cartSessionId: paymentQr.cartSessionId || cartSessionId,
-              currency: paymentQr.currency || "EGP",
-              errorMessage: null,
-              paymentStatus: paymentQr.paymentStatus || "PENDING",
-              paymentUrl: paymentQr.paymentUrl || paymentQr.qrValue || "",
-              qrValue: paymentQr.qrValue || paymentQr.paymentUrl || "",
-              receiptId: paymentQr.receiptId || receiptId,
-              status: "pending"
-            } as const;
-
-            setPaymentSession(nextPaymentSession);
-            setConnected(true);
-            setBackendStatus("active");
-            setSessionControlMode("full");
-            setSnapshot(applyPaymentSessionToSnapshot(currentSnapshot, nextPaymentSession));
-          } catch (error) {
-            const failedPaymentSession = {
-              ...creatingPaymentSession,
-              errorMessage: error instanceof Error ? error.message : "Could not create payment QR. Try again.",
-              status: "failed"
-            } as const;
-
-            setPaymentSession(failedPaymentSession);
-            throw error;
-          }
-        })();
+        await createBackendPaymentSession();
       },
       startShopping: async () => {
         startLocalGuestSession();
@@ -378,4 +254,313 @@ export function useCartRuntime(): RuntimeActions {
       }
     };
   }, [backendMode, clearPaymentSession, edgeSocket, requestActiveSessionRefresh, sessionControlMode, setBackendStatus, setConnected, setListStatus, setPaymentSession, setSessionControlMode, setSnapshot]);
+
+  async function createBackendPaymentSession() {
+    const currentSnapshot = snapshotRef.current;
+    if (!currentSnapshot?.sessionId || currentSnapshot.state === "WAITING_FOR_LIST") {
+      throw new Error("No active backend session is available for payment.");
+    }
+
+    const cartCode = currentSnapshot.pairing?.cartId || currentSnapshot.cartId || CART_CODE;
+    const paymentRequest = await buildPaymentQrRequest(cartCode, currentSnapshot);
+    const amount = paymentRequest.amount;
+    const currency = paymentRequest.currency;
+    const cartSessionId = paymentRequest.cartSessionId;
+    const receiptId = paymentRequest.receiptId;
+    const basePaymentSession = {
+      amount,
+      amountDisplay: undefined,
+      cartSessionId: cartSessionId ?? "",
+      currency,
+      errorMessage: null,
+      expiresAt: undefined,
+      paymentStatus: "PENDING",
+      paymentAttemptId: undefined,
+      paymentUrl: "",
+      qrValue: "",
+      receiptId: receiptId ?? "",
+      status: "creating"
+    } as const;
+
+    if (IS_DEV) {
+      console.log("[payment-qr] endpoint", `/api/carts/${encodeURIComponent(cartCode)}/payment-qr`);
+      console.log("[payment-qr] cartCode", cartCode);
+      console.log("[payment-qr] amount", amount);
+      console.log("[payment-qr] currency", currency);
+      console.log("[payment-qr] items count", paymentRequest.items.length);
+    }
+
+    if (!paymentRequest.items.length) {
+      const errorMessage = "Receipt items are not ready yet.";
+      const failedPaymentSession = createFailedPaymentSession(basePaymentSession, errorMessage);
+      setPaymentSession(failedPaymentSession);
+      setSnapshot(applyPaymentSessionToSnapshot(currentSnapshot, failedPaymentSession));
+      throw new Error(errorMessage);
+    }
+
+    if (amount <= 0) {
+      const errorMessage = "Receipt total must be greater than 0 before generating payment QR.";
+      const failedPaymentSession = createFailedPaymentSession(basePaymentSession, errorMessage);
+      setPaymentSession(failedPaymentSession);
+      setSnapshot(applyPaymentSessionToSnapshot(currentSnapshot, failedPaymentSession));
+      throw new Error(errorMessage);
+    }
+
+    if (currency !== "EGP") {
+      const errorMessage = "Payment currency must be EGP.";
+      const failedPaymentSession = createFailedPaymentSession(basePaymentSession, errorMessage);
+      setPaymentSession(failedPaymentSession);
+      setSnapshot(applyPaymentSessionToSnapshot(currentSnapshot, failedPaymentSession));
+      throw new Error(errorMessage);
+    }
+
+    setPaymentSession(basePaymentSession);
+
+    try {
+      const paymentQr = await requestCartoPaymentQr({
+        amount: paymentRequest.amount,
+        currency: paymentRequest.currency,
+        items: paymentRequest.items
+      }, cartCode);
+      const nextPaymentSession = {
+        amount: paymentQr.amount && paymentQr.amount > 0 ? paymentQr.amount : amount,
+        amountDisplay: paymentQr.amountDisplay ?? undefined,
+        cartSessionId: paymentQr.cartSessionId || cartSessionId || "",
+        currency: paymentQr.currency || "EGP",
+        errorMessage: null,
+        expiresAt: paymentQr.expiresAt ?? undefined,
+        paymentStatus: paymentQr.paymentStatus || "PENDING",
+        paymentAttemptId: paymentQr.paymentAttemptId ?? undefined,
+        paymentUrl: paymentQr.paymentUrl || paymentQr.qrValue || "",
+        qrValue: paymentQr.qrValue || paymentQr.paymentUrl || "",
+        receiptId: paymentQr.receiptId || receiptId || "",
+        status: "pending"
+      } as const;
+
+      setPaymentSession(nextPaymentSession);
+      setConnected(true);
+      setBackendStatus("active");
+      setSessionControlMode("full");
+      setSnapshot(applyPaymentSessionToSnapshot(currentSnapshot, nextPaymentSession));
+    } catch (error) {
+      const errorMessage = normalizePaymentQrErrorMessage(error);
+      const failedPaymentSession = createFailedPaymentSession(basePaymentSession, errorMessage);
+      const runtimeError = error instanceof Error && error.message === errorMessage
+        ? error
+        : new Error(errorMessage);
+
+      setPaymentSession(failedPaymentSession);
+      setSnapshot(applyPaymentSessionToSnapshot(currentSnapshot, failedPaymentSession));
+      throw runtimeError;
+    }
+  }
+
+  async function disconnectAndBuildWaitingSnapshot(currentSnapshot: typeof snapshotRef.current) {
+    const effectiveCartCode = currentSnapshot?.pairing?.cartId || currentSnapshot?.cartId;
+    if (!effectiveCartCode) {
+      throw new Error("Cart code is missing. Unable to close the session.");
+    }
+
+    await disconnectCartoSession(effectiveCartCode);
+
+    let qrData = null;
+    try {
+      qrData = await getCartQrCode(effectiveCartCode);
+    } catch {
+      qrData = null;
+    }
+
+    return buildWaitingSnapshot(effectiveCartCode, qrData);
+  }
+
+  function createFailedPaymentSession(
+    paymentSession: {
+      amount: number;
+      amountDisplay?: string;
+      cartSessionId: string;
+      currency: string;
+      errorMessage: null;
+      expiresAt?: string;
+      paymentStatus: string;
+      paymentAttemptId?: string;
+      paymentUrl: string;
+      qrValue: string;
+      receiptId: string;
+      status: "creating";
+    },
+    errorMessage: string
+  ) {
+    return {
+      ...paymentSession,
+      errorMessage,
+      status: "failed"
+    } as const;
+  }
+
+  function normalizePaymentQrErrorMessage(error: unknown) {
+    const code = readRuntimeErrorCode(error);
+    const message = error instanceof Error ? error.message.trim() : "";
+
+    switch (code) {
+      case "DEVICE_SECRET_REQUIRED":
+      case "INVALID_DEVICE_SECRET":
+        return "Device secret is wrong or missing.";
+      case "CART_NOT_FOUND":
+        return "Cart not found. Check cart code is cart-01.";
+      case "NO_ACTIVE_SESSION":
+        return "No active cart session is available for payment.";
+      case "RECEIPT_NOT_FOUND":
+        return "Receipt is not ready yet.";
+      case "RECEIPT_FINALIZED":
+      case "RECEIPT_ALREADY_PAID":
+      case "PAYMENT_ALREADY_COMPLETED":
+        return "This receipt is already finalized for payment.";
+      case "INVALID_RECEIPT_TOTAL":
+      case "INVALID_PAYMENT_AMOUNT":
+        return "Receipt total must be greater than 0 before generating payment QR.";
+      case "INVALID_RECEIPT_CURRENCY":
+        return "Payment currency must be EGP.";
+      case "PAYMOB_NOT_CONFIGURED":
+        return "Payment provider is not configured yet.";
+      case "PAYMENT_PROVIDER_ERROR":
+        return "Payment provider could not create a checkout QR right now.";
+      case "PAYMENT_URL_MISSING":
+        return "Payment QR URL is missing from the backend response.";
+      case "DATABASE_UNAVAILABLE":
+        return "Payment service is temporarily unavailable. Please try again.";
+      default:
+        break;
+    }
+
+    if (!message) {
+      return "Could not create payment QR. Try again.";
+    }
+
+    if (/expected object, received null/i.test(message)) {
+      return "Payment QR request body is invalid. Please try again.";
+    }
+
+    if (/required/i.test(message)) {
+      return "Payment QR request is missing amount.";
+    }
+
+    return message;
+  }
+
+  function normalizeRuntimeId(value: string | null | undefined) {
+    if (typeof value !== "string") {
+      return null;
+    }
+
+    const normalized = value.trim();
+    return normalized.length > 0 ? normalized : null;
+  }
+
+  async function buildPaymentQrRequest(
+    cartCode: string,
+    currentSnapshot: NonNullable<typeof snapshotRef.current>
+  ) {
+    const activeSession = await loadActivePaymentSource(cartCode);
+    if (activeSession) {
+      return buildPaymentRequestFromActiveSession(activeSession);
+    }
+
+    return buildPaymentRequestFromSnapshot(currentSnapshot);
+  }
+
+  async function loadActivePaymentSource(cartCode: string) {
+    const result = await getActiveSession(cartCode);
+    if (!result.ok) {
+      return null;
+    }
+
+    return result.data.status === "active"
+      ? result.data
+      : null;
+  }
+
+  function buildPaymentRequestFromActiveSession(activeSession: CartoActiveSessionData) {
+    const amount = roundPaymentAmount(activeSession.total ?? activeSession.receipt?.total ?? activeSession.payment?.amount ?? 0);
+    const currency = normalizePaymentCurrency(activeSession.receipt?.currency ?? activeSession.payment?.currency ?? "EGP");
+    const rawItems = activeSession.cartItems.length
+      ? activeSession.cartItems
+      : activeSession.receipt?.items ?? [];
+
+    return {
+      amount,
+      cartSessionId: normalizeRuntimeId(activeSession.cartSessionId ?? activeSession.sessionId ?? activeSession.session?.id ?? null),
+      currency,
+      items: rawItems
+        .map((item) => mapPaymentItem({
+          name: item.name,
+          quantity: item.quantity,
+          total: item.total,
+          unitPrice: item.price
+        }))
+        .filter((item): item is CartoPaymentQrItemPayload => item !== null),
+      receiptId: normalizeRuntimeId(activeSession.receiptId ?? activeSession.receipt?.id ?? activeSession.payment?.receiptId ?? null)
+    };
+  }
+
+  function buildPaymentRequestFromSnapshot(snapshot: NonNullable<typeof snapshotRef.current>) {
+    return {
+      amount: roundPaymentAmount(snapshot.totals.total ?? snapshot.payment.amount ?? 0),
+      cartSessionId: normalizeRuntimeId(snapshot.activeListId),
+      currency: "EGP",
+      items: snapshot.cartItems
+        .map((item) => mapPaymentItem({
+          name: item.name,
+          quantity: item.quantity,
+          total: item.lineTotal,
+          unitPrice: item.unitPrice
+        }))
+        .filter((item): item is CartoPaymentQrItemPayload => item !== null),
+      receiptId: normalizeRuntimeId(snapshot.payment.transactionId)
+    };
+  }
+
+  function mapPaymentItem(item: {
+    name?: string | null;
+    quantity?: number | null;
+    total?: number | null;
+    unitPrice?: number | null;
+  }) {
+    const name = typeof item.name === "string" ? item.name.trim() : "";
+    if (!name) {
+      return null;
+    }
+
+    const quantity = Number(item.quantity ?? 1);
+    const unitPrice = Number(item.unitPrice ?? 0);
+    const total = Number(item.total ?? unitPrice * quantity);
+
+    return {
+      name,
+      quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : 1,
+      total: Number.isFinite(total) && total >= 0 ? total : 0,
+      unitPrice: Number.isFinite(unitPrice) && unitPrice >= 0 ? unitPrice : 0
+    } satisfies CartoPaymentQrItemPayload;
+  }
+
+  function normalizePaymentCurrency(value: string | null | undefined) {
+    const normalized = typeof value === "string" ? value.trim().toUpperCase() : "";
+    return normalized || "EGP";
+  }
+
+  function readRuntimeErrorCode(error: unknown) {
+    const code = error && typeof error === "object" && "code" in error
+      ? (error as { code?: unknown }).code
+      : null;
+
+    return typeof code === "string" && code.length > 0 ? code : null;
+  }
+
+  function roundPaymentAmount(value: number | null | undefined) {
+    const amount = Number(value ?? 0);
+    if (!Number.isFinite(amount)) {
+      return 0;
+    }
+
+    return Math.round((amount + Number.EPSILON) * 100) / 100;
+  }
 }
