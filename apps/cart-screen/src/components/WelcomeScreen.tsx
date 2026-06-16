@@ -5,7 +5,6 @@ import { CART_SCREEN_BACKEND_MODE } from "../realtime/config";
 import type { AppStrings, ThemePalette } from "../ui/appUi";
 import { scaleSize, shadowStyle } from "../ui/appUi";
 import { CartoLogo } from "./CartoLogo";
-import { ListDeliveryStatusIndicator } from "./ListDeliveryStatusIndicator";
 import { RevealView } from "./RevealView";
 
 interface WelcomeScreenProps {
@@ -48,11 +47,8 @@ export function WelcomeScreen({
   backendStatus,
   cartCode,
   connected,
-  listStatus,
-  receivedItemCount,
   onContinueWithoutList,
   onRefreshQr,
-  onRetryListStatus,
   snapshot,
   strings,
   textScale,
@@ -60,10 +56,10 @@ export function WelcomeScreen({
 }: WelcomeScreenProps) {
   const { width } = useWindowDimensions();
   const compact = width < 920;
+  const ultraCompact = width < 720;
   const pairing = snapshot?.pairing;
   const backendMode = CART_SCREEN_BACKEND_MODE;
   const isCartoMode = backendMode === "carto";
-  const cartCodeLabel = cartCode || pairing?.cartId || "";
   const qrValue = pairing?.qrPayload ?? "";
   const finalQrValue = ensureCartPairingQrValue(qrValue);
   const pairingStatusLabel = getPairingStatusLabel(backendStatus, strings);
@@ -78,14 +74,15 @@ export function WelcomeScreen({
             backgroundColor: theme.surface,
             borderColor: theme.border
           },
+          ...(compact ? [styles.cardCompact] : []),
           shadowStyle(theme, 18)
         ]}
       >
         <CartoLogo
-          height={compact ? 112 : 136}
+          height={ultraCompact ? 92 : compact ? 104 : 128}
           radius={26}
           resizeMode="cover"
-          width={compact ? 236 : 300}
+          width={ultraCompact ? 196 : compact ? 224 : 280}
         />
 
         <Text style={[styles.eyebrow, { color: theme.accent, fontSize: scaleSize(12, textScale) }]}>
@@ -113,30 +110,25 @@ export function WelcomeScreen({
           />
         </View>
 
-        <ListDeliveryStatusIndicator
-          listStatus={listStatus}
-          onRetry={onRetryListStatus}
-          receivedItemCount={receivedItemCount}
-          strings={strings}
-          textScale={textScale}
-          theme={theme}
-        />
-
         <Text style={[styles.qrTitle, { color: theme.textPrimary, fontSize: scaleSize(22, textScale) }]}>
           {strings.qrPrompt}
         </Text>
 
-        <View style={[styles.qrFrame, { backgroundColor: theme.card, borderColor: theme.border }]}>
+        <View style={[
+          styles.qrFrame,
+          ...(compact ? [styles.qrFrameCompact] : []),
+          { backgroundColor: theme.card, borderColor: theme.border }
+        ]}>
           {finalQrValue ? (
-            <QRCode key={finalQrValue} value={finalQrValue} size={compact ? 210 : 260} />
+            <QRCode key={finalQrValue} value={finalQrValue} size={ultraCompact ? 180 : compact ? 204 : 240} />
           ) : (
             isCartoMode ? (
               <View style={styles.warningBlock}>
                 <Text style={[styles.warningTitle, { color: theme.warning, fontSize: scaleSize(16, textScale) }]}>
-                  {cartCodeLabel ? "QR unavailable" : "Cart code missing"}
+                  {cartCode || pairing?.cartId ? "QR unavailable" : "Cart code missing"}
                 </Text>
                 <Text style={[styles.qrFallback, { color: theme.textMuted, fontSize: scaleSize(14, textScale) }]}>
-                  {cartCodeLabel
+                  {cartCode || pairing?.cartId
                     ? "Backend QR is unavailable. Refresh to try again."
                     : "Set `CART_CODE` or `EXPO_PUBLIC_CART_CODE` to generate the online pairing QR."}
                 </Text>
@@ -148,17 +140,6 @@ export function WelcomeScreen({
             )
           )}
         </View>
-
-        {finalQrValue ? (
-          <View style={styles.debugBlock}>
-            <Text style={[styles.debugLabel, { color: theme.textMuted, fontSize: scaleSize(11, textScale) }]}>
-              QR Payload:
-            </Text>
-            <Text style={[styles.debugValue, { color: theme.textSecondary, fontSize: scaleSize(12, textScale) }]}>
-              {finalQrValue}
-            </Text>
-          </View>
-        ) : null}
 
         {isCartoMode ? (
           <Pressable
@@ -180,26 +161,6 @@ export function WelcomeScreen({
             </Text>
           </Pressable>
         ) : null}
-
-        {pairing?.pairingCode ? (
-          <View style={styles.codeBlock}>
-            <Text style={[styles.codeLabel, { color: theme.textMuted, fontSize: scaleSize(11, textScale) }]}>
-              {strings.pairingCode}
-            </Text>
-            <Text style={[styles.codeValue, { color: theme.success, fontSize: scaleSize(34, textScale) }]}>
-              {pairing.pairingCode}
-            </Text>
-          </View>
-        ) : null}
-
-        <View style={styles.codeBlock}>
-          <Text style={[styles.codeLabel, { color: theme.textMuted, fontSize: scaleSize(11, textScale) }]}>
-            Cart code
-          </Text>
-          <Text style={[styles.cartCodeValue, { color: theme.textPrimary, fontSize: scaleSize(20, textScale) }]}>
-            {cartCodeLabel || "------"}
-          </Text>
-        </View>
 
         <Pressable
           accessibilityRole="button"
@@ -265,7 +226,8 @@ function StatusBadge({
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    padding: 24,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     justifyContent: "center"
   },
   card: {
@@ -274,10 +236,15 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     borderRadius: 34,
     borderWidth: 1,
-    paddingHorizontal: 28,
-    paddingVertical: 30,
-    gap: 16,
+    paddingHorizontal: 24,
+    paddingVertical: 24,
+    gap: 12,
     alignItems: "center"
+  },
+  cardCompact: {
+    paddingHorizontal: 20,
+    paddingVertical: 20,
+    gap: 10
   },
   eyebrow: {
     fontWeight: "900",
@@ -289,21 +256,20 @@ const styles = StyleSheet.create({
   },
   message: {
     fontWeight: "700",
-    lineHeight: 24,
-    maxWidth: 640,
+    lineHeight: 22,
+    maxWidth: 620,
     textAlign: "center"
   },
   badges: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 10,
-    paddingTop: 4,
+    gap: 8,
     justifyContent: "center"
   },
   badge: {
-    minHeight: 36,
+    minHeight: 34,
     borderRadius: 999,
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     alignItems: "center",
     justifyContent: "center"
   },
@@ -335,27 +301,17 @@ const styles = StyleSheet.create({
   },
   qrFrame: {
     width: "100%",
-    maxWidth: 360,
+    maxWidth: 332,
     aspectRatio: 1,
     borderRadius: 28,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
-    padding: 20
+    padding: 18
   },
-  debugBlock: {
-    width: "100%",
-    maxWidth: 560,
-    gap: 6,
-    alignItems: "center"
-  },
-  debugLabel: {
-    fontWeight: "900",
-    textTransform: "uppercase"
-  },
-  debugValue: {
-    textAlign: "center",
-    lineHeight: 18
+  qrFrameCompact: {
+    maxWidth: 292,
+    padding: 16
   },
   qrFallback: {
     fontWeight: "700",
@@ -379,20 +335,5 @@ const styles = StyleSheet.create({
   },
   refreshButtonText: {
     fontWeight: "900"
-  },
-  codeBlock: {
-    alignItems: "center",
-    gap: 4
-  },
-  codeLabel: {
-    fontWeight: "900",
-    textTransform: "uppercase"
-  },
-  codeValue: {
-    fontWeight: "900"
-  },
-  cartCodeValue: {
-    fontWeight: "900",
-    letterSpacing: 0.6
   }
 });

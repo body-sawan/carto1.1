@@ -119,6 +119,16 @@ export interface CartoReceiptItem {
   total?: number;
 }
 
+export interface CartoReceiptSummary {
+  id?: string | null;
+  items?: CartoReceiptItem[] | null;
+  paymentStatus?: string | null;
+  status?: string | null;
+  subtotal?: number | null;
+  tax?: number | null;
+  total?: number | null;
+}
+
 export interface CartoActiveSessionData {
   active?: true;
   cart?: {
@@ -131,6 +141,7 @@ export interface CartoActiveSessionData {
   cartStatus?: string;
   list?: CartoShoppingListContainer | null;
   paymentStatus?: string | null;
+  receipt?: CartoReceiptSummary | null;
   receiptId?: string | null;
   session?: {
     endedAt?: string | null;
@@ -515,58 +526,63 @@ export function buildWaitingSnapshot(cartCode = CART_CODE, qrData?: CartoQrData 
 }
 
 function normalizeCartPairingQrData(data: CartoQrData): CartoQrData {
-  const qrValue = typeof data.qrValue === "string" && data.qrValue.length > 0
-    ? data.qrValue
-    : buildCartPairingQrValue(data);
-  const parsed = JSON.parse(qrValue) as {
-    cartCode: string;
-    pairingCode: string;
-    type: "cart_pairing";
-  };
-
-  return {
-    ...data,
-    payload: {
-      type: "cart_pairing",
-      cartCode: parsed.cartCode,
-      pairingCode: parsed.pairingCode
-    },
-    qrValue
-  };
-}
-
-function buildCartPairingQrValue(data: CartoQrData): string {
-  const payload = data.payload;
-
-  let cartCode = payload?.cartCode;
-  let pairingCode = payload?.pairingCode;
-
-  if ((!cartCode || !pairingCode) && typeof data.qrValue === "string") {
-    try {
-      const parsed = JSON.parse(data.qrValue) as Partial<CartoQrData["payload"]>;
-      cartCode = cartCode ?? parsed?.cartCode;
-      pairingCode = pairingCode ?? parsed?.pairingCode;
-    } catch {}
-  }
+  const parsedQrValue = parseCartPairingQrValue(data.qrValue);
+  const cartCode = data.payload?.cartCode ?? parsedQrValue?.cartCode;
+  const pairingCode = data.payload?.pairingCode ?? parsedQrValue?.pairingCode;
 
   if (!cartCode || !pairingCode) {
     throw new Error("QR response missing cartCode or pairingCode");
   }
 
-  return JSON.stringify({
+  const qrValue = JSON.stringify({
     type: "cart_pairing",
     cartCode: String(cartCode),
     pairingCode: String(pairingCode)
   });
+
+  return {
+    ...data,
+    payload: {
+      type: "cart_pairing",
+      cartCode: String(cartCode),
+      pairingCode: String(pairingCode)
+    },
+    qrValue
+  };
+}
+
+function parseCartPairingQrValue(value: string | null | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(value) as Partial<CartoQrData["payload"]>;
+    if (!parsed?.cartCode || !parsed?.pairingCode) {
+      return null;
+    }
+
+    return {
+      cartCode: String(parsed.cartCode),
+      pairingCode: String(parsed.pairingCode)
+    };
+  } catch {
+    return null;
+  }
 }
 
 export function mapActiveSessionToSnapshot(data: CartoActiveSessionData, previousSnapshot: CartSnapshot | null): CartSnapshot {
-  const cartItems = mapReceiptItems(data.cartItems);
+  const cartItems = resolveActiveSessionCartItems(data);
   const shoppingList = mapShoppingListItems(data, cartItems);
   const subtotal = roundMoney(cartItems.reduce((sum, item) => sum + safeNumber(item.lineTotal), 0));
-  const total = roundMoney(Number.isFinite(data.total) ? data.total : subtotal);
+  const total = roundMoney(
+    safeNumber(
+      data.receipt?.total,
+      safeNumber(data.total, subtotal)
+    )
+  );
   const tax = roundMoney(Math.max(0, total - subtotal));
-  const paymentStatus = mapPaymentStatus(data.paymentStatus, total, cartItems.length);
+  const paymentStatus = mapActiveSessionPaymentStatus(data.paymentStatus);
   const snapshotState = mapSnapshotState(paymentStatus);
   const pairing = previousSnapshot?.pairing ?? null;
 
@@ -637,7 +653,9 @@ export function applyPaymentSessionToSnapshot(
   snapshot: CartSnapshot,
   paymentSession: {
     amount?: number;
+    paymentUrl?: string | null;
     paymentStatus?: string | null;
+    qrValue?: string | null;
     receiptId?: string | null;
     status?: "idle" | "creating" | "pending" | "success" | "failed";
   } | null
@@ -647,13 +665,19 @@ export function applyPaymentSessionToSnapshot(
   }
 
   const baseAmount = safeNumber(paymentSession.amount, snapshot.payment.amount || snapshot.totals.total);
+  const hasPaymentQr = Boolean(
+    (typeof paymentSession.qrValue === "string" && paymentSession.qrValue.length > 0)
+    || (typeof paymentSession.paymentUrl === "string" && paymentSession.paymentUrl.length > 0)
+  );
   const normalizedStatus = paymentSession.status === "success"
     ? "PAID"
     : paymentSession.status === "failed"
-      ? "FAILED"
-      : mapPaymentStatus(paymentSession.paymentStatus, baseAmount, snapshot.cartItems.length) === "NOT_STARTED"
-        ? "WAITING_PAYMENT"
-        : mapPaymentStatus(paymentSession.paymentStatus, baseAmount, snapshot.cartItems.length);
+      ? (hasPaymentQr ? "FAILED" : snapshot.payment.status)
+      : hasPaymentQr
+        ? (mapPaymentStatus(paymentSession.paymentStatus, baseAmount, snapshot.cartItems.length) === "NOT_STARTED"
+          ? "WAITING_PAYMENT"
+          : mapPaymentStatus(paymentSession.paymentStatus, baseAmount, snapshot.cartItems.length))
+        : snapshot.payment.status;
 
   return {
     ...snapshot,
@@ -696,6 +720,7 @@ function normalizeActiveSessionResponse(
       cartStatus: typeof data.cartStatus === "string" ? data.cartStatus : undefined,
       list: shoppingList.fromList,
       paymentStatus: typeof data.paymentStatus === "string" || data.paymentStatus === null ? data.paymentStatus as string | null : null,
+      receipt: asMaybeReceipt(data.receipt),
       receiptId: typeof data.receiptId === "string" || data.receiptId === null ? data.receiptId as string | null : null,
       session: asMaybeSession(data.session),
       sessionId: String(data.sessionId ?? ""),
@@ -753,6 +778,26 @@ function mapReceiptItems(items: CartoReceiptItem[]) {
   });
 }
 
+function resolveActiveSessionCartItems(session: CartoActiveSessionData) {
+  const shoppingListItems = Array.isArray((session.shoppingList ?? session.list ?? null)?.items)
+    ? (session.shoppingList ?? session.list ?? null)?.items ?? []
+    : [];
+  const mappedCartItems = mapReceiptItems(session.cartItems ?? []);
+  const mappedReceiptItems = mapReceiptItems(session.receipt?.items ?? []);
+  const sanitizedCartItems = filterMirroredShoppingListItems(mappedCartItems, shoppingListItems);
+  const sanitizedReceiptItems = filterMirroredShoppingListItems(mappedReceiptItems, shoppingListItems);
+
+  if (sanitizedCartItems.length > 0) {
+    return sanitizedCartItems;
+  }
+
+  if (sanitizedReceiptItems.length > 0) {
+    return sanitizedReceiptItems;
+  }
+
+  return [];
+}
+
 function mapShoppingListItems(session: CartoActiveSessionData, cartItems: ReceiptLine[]) {
   const listContainer = session.shoppingList ?? session.list ?? null;
   const items = Array.isArray(listContainer?.items) ? listContainer.items : [];
@@ -789,10 +834,38 @@ function mapShoppingListItems(session: CartoActiveSessionData, cartItems: Receip
   });
 }
 
+function filterMirroredShoppingListItems(cartItems: ReceiptLine[], shoppingListItems: CartoShoppingListItem[]) {
+  if (!cartItems.length || !shoppingListItems.length) {
+    return cartItems;
+  }
+
+  const shoppingListKeys = new Set(
+    shoppingListItems.map((item) => buildShoppingListMatchKey(item.name, item.category))
+  );
+
+  return cartItems.filter((item) => {
+    const hasCheckoutValue = item.unitPrice > 0 || item.lineTotal > 0;
+    if (hasCheckoutValue) {
+      return true;
+    }
+
+    return !shoppingListKeys.has(buildShoppingListMatchKey(item.name, item.category));
+  });
+}
+
 function deriveShoppingItemStatus(inCartQuantity: number, targetQuantity: number): ShoppingListItemStatus {
   if (inCartQuantity <= 0) return "PENDING";
   if (inCartQuantity < targetQuantity) return "PARTIAL";
   return "IN_CART";
+}
+
+function mapActiveSessionPaymentStatus(rawStatus: string | null | undefined): PaymentStatus {
+  const normalized = rawStatus?.toUpperCase() ?? "";
+  if (normalized.includes("PAID")) return "PAID";
+  if (normalized.includes("COMPLETE")) return "PAID";
+  if (normalized.includes("FAIL")) return "FAILED";
+  if (normalized.includes("CANCEL")) return "CANCELLED";
+  return "NOT_STARTED";
 }
 
 function mapPaymentStatus(rawStatus: string | null | undefined, total: number, itemCount: number): PaymentStatus {
@@ -986,8 +1059,27 @@ function asMaybeSession(value: unknown) {
   };
 }
 
+function asMaybeReceipt(value: unknown) {
+  const record = asRecord(value);
+  if (!record) return null;
+
+  return {
+    id: normalizeOptionalString(record.id),
+    items: Array.isArray(record.items) ? record.items as CartoReceiptItem[] : [],
+    paymentStatus: normalizeOptionalString(record.paymentStatus),
+    status: normalizeOptionalString(record.status),
+    subtotal: safeMaybeNumber(record.subtotal),
+    tax: safeMaybeNumber(record.tax),
+    total: safeMaybeNumber(record.total)
+  } satisfies CartoReceiptSummary;
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? value as Record<string, unknown> : null;
+}
+
+function buildShoppingListMatchKey(name: string | null | undefined, category: string | null | undefined) {
+  return `${normalizeKey(name ?? "")}::${normalizeKey(category ?? "")}`;
 }
 
 function normalizeKey(value: string) {

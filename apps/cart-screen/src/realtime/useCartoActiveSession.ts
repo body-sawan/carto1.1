@@ -259,10 +259,22 @@ export function useCartoActiveSession(enabled: boolean) {
             return;
           }
 
+          const hasStalePaymentSession = Boolean(
+            paymentSession
+            && (
+              paymentSession.cartSessionId !== result.data.cartSessionId
+              || paymentSession.receiptId !== (result.data.receiptId ?? "")
+            )
+          );
+
+          if (hasStalePaymentSession) {
+            clearPaymentSession();
+          }
+
           consecutiveNetworkFailuresRef.current = 0;
           const receivedItemCount = Array.isArray(listContainer.items) ? listContainer.items.length : 0;
           const mappedSnapshot = mapActiveSessionToSnapshot(result.data, latestSnapshot);
-          const effectiveSnapshot = applyPaymentSessionToSnapshot(mappedSnapshot, paymentSession);
+          const effectiveSnapshot = applyPaymentSessionToSnapshot(mappedSnapshot, hasStalePaymentSession ? null : paymentSession);
           setConnected(true);
           setBackendStatus("active");
           setSessionControlMode("full");

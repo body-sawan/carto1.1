@@ -240,6 +240,15 @@ export function CartScreen() {
     setStage("shopping");
   }
 
+  async function handleCheckoutFromDashboard() {
+    if (CART_SCREEN_BACKEND_MODE === "carto" && sessionControlMode !== "local_guest") {
+      await runtime.startCheckout();
+      return;
+    }
+
+    setStage("receipt");
+  }
+
   const shoppingContent = snapshot?.state === "ERROR"
     ? (
       <View style={[styles.errorCard, { backgroundColor: theme.errorSoft, borderColor: theme.border }]}>
@@ -258,7 +267,7 @@ export function CartScreen() {
         connected={connected}
         language={language}
         listStatus={effectiveListStatus}
-        onCheckout={() => setStage("receipt")}
+        onCheckout={() => void runRuntimeAction(handleCheckoutFromDashboard, strings.confirmCheckout)}
         onRetryListStatus={() => void runRuntimeAction(runtime.retryListStatus, strings.retry)}
         receivedItemCount={receivedItemCount}
         showDeliveryStatus={sessionControlMode !== "local_guest"}

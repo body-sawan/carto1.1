@@ -11,9 +11,10 @@ export function useCartoPaymentStatus(enabled: boolean) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inFlightRef = useRef(false);
   const requestControllerRef = useRef<AbortController | null>(null);
+  const hasPaymentQr = Boolean(paymentSession?.qrValue || paymentSession?.paymentUrl);
 
   useEffect(() => {
-    if (!enabled || !paymentSession || paymentSession.status === "idle") {
+    if (!enabled || !paymentSession || paymentSession.status === "idle" || !hasPaymentQr) {
       return undefined;
     }
 
@@ -47,7 +48,12 @@ export function useCartoPaymentStatus(enabled: boolean) {
       }
 
       const currentPaymentSession = useCartUiStore.getState().paymentSession;
-      if (!currentPaymentSession || currentPaymentSession.status === "success" || currentPaymentSession.status === "failed") {
+      if (
+        !currentPaymentSession
+        || currentPaymentSession.status === "success"
+        || currentPaymentSession.status === "failed"
+        || (!currentPaymentSession.qrValue && !currentPaymentSession.paymentUrl)
+      ) {
         return;
       }
 
@@ -123,5 +129,5 @@ export function useCartoPaymentStatus(enabled: boolean) {
       requestControllerRef.current = null;
       inFlightRef.current = false;
     };
-  }, [enabled, paymentSession, setPaymentSession, setSnapshot]);
+  }, [enabled, hasPaymentQr, paymentSession, setPaymentSession, setSnapshot]);
 }

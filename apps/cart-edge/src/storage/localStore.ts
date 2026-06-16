@@ -15,7 +15,7 @@ export class LocalStore {
   }
 
   async saveSession(session: CartSession): Promise<void> {
-    await mkdir(dirname(this.filePath), { recursive: true });
+    await mkdir(dirname(this.filePath), { recursive: true }); 
     await writeFile(this.filePath, JSON.stringify(session, null, 2), "utf8");
   }
 

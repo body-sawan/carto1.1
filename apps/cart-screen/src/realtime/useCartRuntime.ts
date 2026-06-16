@@ -240,7 +240,6 @@ export function useCartRuntime(): RuntimeActions {
           } as const;
 
           setPaymentSession(creatingPaymentSession);
-          setSnapshot(applyPaymentSessionToSnapshot(currentSnapshot, creatingPaymentSession));
 
           try {
             const paymentQr = await requestPaymentQr({ cartSessionId, receiptId });
@@ -319,10 +318,6 @@ export function useCartRuntime(): RuntimeActions {
           } as const;
 
           setPaymentSession(creatingPaymentSession);
-          setConnected(true);
-          setBackendStatus("active");
-          setSessionControlMode("full");
-          setSnapshot(applyPaymentSessionToSnapshot(currentSnapshot, creatingPaymentSession));
 
           try {
             const paymentQr = await requestPaymentQr({ cartSessionId, receiptId });
@@ -339,6 +334,9 @@ export function useCartRuntime(): RuntimeActions {
             } as const;
 
             setPaymentSession(nextPaymentSession);
+            setConnected(true);
+            setBackendStatus("active");
+            setSessionControlMode("full");
             setSnapshot(applyPaymentSessionToSnapshot(currentSnapshot, nextPaymentSession));
           } catch (error) {
             const failedPaymentSession = {
@@ -348,7 +346,6 @@ export function useCartRuntime(): RuntimeActions {
             } as const;
 
             setPaymentSession(failedPaymentSession);
-            setSnapshot(applyPaymentSessionToSnapshot(currentSnapshot, failedPaymentSession));
             throw error;
           }
         })();
