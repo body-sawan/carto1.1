@@ -1,4 +1,4 @@
-import type { Alert, CartSnapshot } from "@carto/shared";
+import type { Alert, CartSnapshot, ReceiptLine } from "@carto/shared";
 import { useEffect, useRef, useState } from "react";
 import { SafeAreaView, StyleSheet, Text, View } from "react-native";
 import { AdminAccessButton } from "../components/AdminAccessButton";
@@ -24,6 +24,7 @@ export function CartScreen() {
   const backendStatus = useCartUiStore((state) => state.backendStatus);
   const snapshot = useCartUiStore((state) => state.snapshot);
   const connected = useCartUiStore((state) => state.connected);
+  const deviceCartItems = useCartUiStore((state) => state.deviceCartItems);
   const language = useCartUiStore((state) => state.language);
   const listStatus = useCartUiStore((state) => state.listStatus);
   const paymentSession = useCartUiStore((state) => state.paymentSession);
@@ -33,6 +34,7 @@ export function CartScreen() {
   const strings = getAppStrings(language);
   const theme = getThemePalette();
   const textScale = getTextScale(textSize);
+  const visibleCartItems = sessionControlMode === "local_guest" ? (snapshot?.cartItems ?? []) : deviceCartItems;
   const effectiveListStatus = backendStatus === "waiting" && listStatus === "checking"
     ? "waiting"
     : listStatus;
@@ -44,6 +46,7 @@ export function CartScreen() {
   const [productFeedback, setProductFeedback] = useState<ProductFeedback | null>(null);
   const [showCheckoutSuccess, setShowCheckoutSuccess] = useState(false);
   const previousSnapshotRef = useRef<CartSnapshot | null>(null);
+  const previousDeviceCartItemsRef = useRef<ReceiptLine[]>([]);
   const initializedRef = useRef(false);
   const playedTransitionSessionRef = useRef<string | null>(null);
   const pendingReturnToShoppingRef = useRef(false);
@@ -93,7 +96,7 @@ export function CartScreen() {
     }
 
     if (previous && previous.sessionId === snapshot.sessionId && previous.state === "SHOPPING" && snapshot.state === "SHOPPING") {
-      const cartFeedbackChange = findCartFeedbackChange(previous, snapshot);
+      const cartFeedbackChange = findCartFeedbackChange(previousDeviceCartItemsRef.current, visibleCartItems);
       if (cartFeedbackChange) {
         showProductOverlay(buildCartFeedback(cartFeedbackChange, snapshot.sessionId, strings));
       }
@@ -132,6 +135,7 @@ export function CartScreen() {
     }
 
     previousSnapshotRef.current = snapshot;
+    previousDeviceCartItemsRef.current = visibleCartItems;
   }, [
     runtime,
     sessionControlMode,
@@ -140,7 +144,8 @@ export function CartScreen() {
     strings.productNotAdded,
     strings.productNotRemoved,
     strings.productQuantityUpdated,
-    strings.productRemoved
+    strings.productRemoved,
+    visibleCartItems
   ]);
 
   function showProductOverlay(feedback: ProductFeedback) {
@@ -166,6 +171,7 @@ export function CartScreen() {
     setIsClosingSession(false);
     pendingReturnToShoppingRef.current = false;
     previousSnapshotRef.current = null;
+    previousDeviceCartItemsRef.current = [];
     setStage("welcome");
   }
 
@@ -264,6 +270,7 @@ export function CartScreen() {
     )
     : (
       <HomeScreen
+        cartItems={visibleCartItems}
         connected={connected}
         language={language}
         listStatus={effectiveListStatus}
@@ -291,6 +298,7 @@ export function CartScreen() {
   } else if (stage === "receipt") {
     content = (
       <CheckoutScreen
+        cartItems={visibleCartItems}
         connected={connected}
         language={language}
         onCancelCheckout={() => void runRuntimeAction(runtime.cancelCheckout, strings.cancelCheckout)}
@@ -300,7 +308,6 @@ export function CartScreen() {
         onRetryPayment={() => void runRuntimeAction(runtime.retryPayment, strings.retryPayment)}
         onReturnToShopping={() => void handleReturnToShopping()}
         paymentSession={paymentSession}
-        sessionControlMode={sessionControlMode}
         snapshot={snapshot}
         strings={strings}
         textScale={textScale}
@@ -404,7 +411,7 @@ type CartFeedbackChange =
   | { kind: "quantity_updated"; productName: string }
   | { kind: "removed"; productName: string };
 
-function findCartFeedbackChange(previous: CartSnapshot, next: CartSnapshot): CartFeedbackChange | null {
+function findCartFeedbackChange(previous: ReceiptLine[], next: ReceiptLine[]): CartFeedbackChange | null {
   const previousItems = summarizeCart(previous);
   const nextItems = summarizeCart(next);
 
@@ -429,10 +436,10 @@ function findCartFeedbackChange(previous: CartSnapshot, next: CartSnapshot): Car
   return null;
 }
 
-function summarizeCart(snapshot: CartSnapshot) {
+function summarizeCart(cartItems: ReceiptLine[]) {
   const items = new Map<string, { name: string; quantity: number }>();
 
-  for (const item of snapshot.cartItems) {
+  for (const item of cartItems) {
     const current = items.get(item.productId);
     items.set(item.productId, {
       name: item.name,

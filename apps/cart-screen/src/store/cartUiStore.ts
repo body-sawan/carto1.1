@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { CartSnapshot } from "@carto/shared";
+import type { CartSnapshot, ReceiptLine } from "@carto/shared";
 
 export type { CartSnapshot } from "@carto/shared";
 
@@ -38,8 +38,23 @@ export interface CartPaymentSession {
   status: CartPaymentFlowStatus;
 }
 
+export interface DeviceCartItemInput {
+  addedAt?: string;
+  barcode: string;
+  category?: string | null;
+  lineId?: string;
+  mapNodeId?: string;
+  name: string;
+  productId: string;
+  quantity?: number;
+  shelfId?: string;
+  unitPrice: number;
+}
+
 interface CartUiStore {
   connected: boolean;
+  deviceCartItems: ReceiptLine[];
+  deviceCartSessionId: string | null;
   snapshot: CartSnapshot | null;
   lastUpdateAt: string | null;
   backendStatus: CartBackendStatus;
@@ -58,8 +73,12 @@ interface CartUiStore {
   setListStatus: (status: ListDeliveryStatus, receivedItemCount?: number) => void;
   setPaymentSession: (paymentSession: CartPaymentSession | null) => void;
   clearPaymentSession: () => void;
+  clearDeviceCart: (sessionId?: string | null) => void;
   setSnapshot: (snapshot: CartSnapshot) => void;
   clearSnapshot: () => void;
+  syncDeviceCartSession: (sessionId: string | null) => void;
+  addDeviceCartItem: (item: DeviceCartItemInput) => void;
+  removeDeviceCartItem: (productId: string, quantity?: number) => void;
   setSessionControlMode: (mode: SessionControlMode) => void;
   setIntegrationMode: (mode: IntegrationMode) => void;
   setActiveTab: (activeTab: TabletTab) => void;
@@ -71,6 +90,8 @@ interface CartUiStore {
 
 export const useCartUiStore = create<CartUiStore>((set) => ({
   connected: false,
+  deviceCartItems: [],
+  deviceCartSessionId: null,
   snapshot: null,
   lastUpdateAt: null,
   backendStatus: "checking",
@@ -89,8 +110,20 @@ export const useCartUiStore = create<CartUiStore>((set) => ({
   setListStatus: (listStatus, receivedItemCount = 0) => set({ listStatus, receivedItemCount }),
   setPaymentSession: (paymentSession) => set({ paymentSession }),
   clearPaymentSession: () => set({ paymentSession: null }),
+  clearDeviceCart: (sessionId = null) => set({ deviceCartItems: [], deviceCartSessionId: sessionId }),
   setSnapshot: (snapshot) => set({ snapshot, lastUpdateAt: new Date().toISOString() }),
   clearSnapshot: () => set({ snapshot: null, lastUpdateAt: null }),
+  syncDeviceCartSession: (sessionId) => set((state) => (
+    state.deviceCartSessionId === sessionId
+      ? { deviceCartSessionId: sessionId }
+      : { deviceCartItems: [], deviceCartSessionId: sessionId }
+  )),
+  addDeviceCartItem: (item) => set((state) => ({
+    deviceCartItems: addOrIncrementDeviceCartItem(state.deviceCartItems, item)
+  })),
+  removeDeviceCartItem: (productId, quantity = 1) => set((state) => ({
+    deviceCartItems: decrementOrRemoveDeviceCartItem(state.deviceCartItems, productId, quantity)
+  })),
   setSessionControlMode: (sessionControlMode) => set({ sessionControlMode }),
   setIntegrationMode: (integrationMode) => set({ integrationMode }),
   setActiveTab: (activeTab) => set({ activeTab }),
@@ -99,3 +132,74 @@ export const useCartUiStore = create<CartUiStore>((set) => ({
   setScanMode: (scanMode) => set({ scanMode }),
   requestActiveSessionRefresh: () => set((state) => ({ activeSessionRefreshKey: state.activeSessionRefreshKey + 1 }))
 }));
+
+function addOrIncrementDeviceCartItem(items: ReceiptLine[], item: DeviceCartItemInput) {
+  const quantity = normalizeQuantity(item.quantity);
+  const nextIndex = items.findIndex((entry) => entry.productId === item.productId);
+
+  if (nextIndex >= 0) {
+    return items.map((entry, index) => (
+      index === nextIndex
+        ? {
+          ...entry,
+          barcode: item.barcode || entry.barcode,
+          category: item.category ?? entry.category,
+          lineId: item.lineId ?? entry.lineId,
+          lineTotal: roundMoney(item.unitPrice * (entry.quantity + quantity)),
+          mapNodeId: item.mapNodeId ?? entry.mapNodeId,
+          name: item.name || entry.name,
+          quantity: entry.quantity + quantity,
+          shelfId: item.shelfId ?? entry.shelfId,
+          unitPrice: item.unitPrice || entry.unitPrice
+        }
+        : entry
+    ));
+  }
+
+  return [
+    {
+      addedAt: item.addedAt ?? new Date().toISOString(),
+      barcode: item.barcode,
+      category: item.category ?? undefined,
+      lineId: item.lineId ?? `device-line-${item.productId}`,
+      lineTotal: roundMoney(item.unitPrice * quantity),
+      mapNodeId: item.mapNodeId,
+      name: item.name,
+      productId: item.productId,
+      quantity,
+      shelfId: item.shelfId,
+      unitPrice: item.unitPrice
+    },
+    ...items
+  ];
+}
+
+function decrementOrRemoveDeviceCartItem(items: ReceiptLine[], productId: string, quantity: number) {
+  const safeQuantity = normalizeQuantity(quantity);
+
+  return items.flatMap((item) => {
+    if (item.productId !== productId) {
+      return [item];
+    }
+
+    const nextQuantity = item.quantity - safeQuantity;
+    if (nextQuantity <= 0) {
+      return [];
+    }
+
+    return [{
+      ...item,
+      lineTotal: roundMoney(item.unitPrice * nextQuantity),
+      quantity: nextQuantity
+    }];
+  });
+}
+
+function normalizeQuantity(value: number | undefined) {
+  const quantity = Number(value ?? 1);
+  return Number.isFinite(quantity) && quantity > 0 ? Math.round(quantity) : 1;
+}
+
+function roundMoney(value: number) {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}

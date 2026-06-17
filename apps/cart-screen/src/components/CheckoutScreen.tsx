@@ -10,13 +10,16 @@ import {
 } from "lucide-react-native";
 import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import QRCode from "react-native-qrcode-svg";
-import type { CartPaymentSession, CartSnapshot, SessionControlMode, UiLanguage } from "../store/cartUiStore";
+import type { ReceiptLine } from "@carto/shared";
+import type { CartPaymentSession, CartSnapshot, UiLanguage } from "../store/cartUiStore";
 import type { AppStrings, ThemePalette } from "../ui/appUi";
 import { formatCurrency, formatStateLabel, scaleSize, shadowStyle } from "../ui/appUi";
 import { CartoLogo } from "./CartoLogo";
 import { RevealView } from "./RevealView";
+import { calculateCartTotals } from "./shopperUtils";
 
 interface CheckoutScreenProps {
+  cartItems: ReceiptLine[];
   connected: boolean;
   language: UiLanguage;
   onCancelCheckout: () => void;
@@ -26,7 +29,6 @@ interface CheckoutScreenProps {
   onRetryPayment: () => void;
   onReturnToShopping: () => void;
   paymentSession: CartPaymentSession | null;
-  sessionControlMode: SessionControlMode;
   snapshot: CartSnapshot | null;
   strings: AppStrings;
   textScale: number;
@@ -35,6 +37,7 @@ interface CheckoutScreenProps {
 }
 
 export function CheckoutScreen({
+  cartItems,
   connected,
   language,
   onCancelCheckout,
@@ -44,7 +47,6 @@ export function CheckoutScreen({
   onRetryPayment,
   onReturnToShopping,
   paymentSession,
-  sessionControlMode,
   snapshot,
   strings,
   textScale,
@@ -53,20 +55,19 @@ export function CheckoutScreen({
 }: CheckoutScreenProps) {
   const { width } = useWindowDimensions();
   const stacked = width < 1180;
-  const cartItems = snapshot?.cartItems ?? [];
+  const cartTotals = calculateCartTotals(cartItems);
   const totalQuantity = cartItems.reduce((sum, item) => sum + item.quantity, 0);
   const state = snapshot?.state;
   const statusTone = getStatusTone(state, theme);
   const StatusIcon = getStatusIcon(state);
   const receiptId = paymentSession?.receiptId ?? snapshot?.payment.transactionId;
-  const paymentAmount = paymentSession?.amount ?? snapshot?.totals.total ?? 0;
+  const paymentAmount = paymentSession?.amount ?? cartTotals.total;
   const paymentCurrency = paymentSession?.currency ?? "EGP";
   const paymentAmountDisplay = paymentSession?.amountDisplay ?? formatCurrency(paymentAmount, language, paymentCurrency);
   const paymentQrValue = paymentSession?.qrValue ?? paymentSession?.paymentUrl ?? "";
   const paymentStatusLabel = paymentSession?.paymentStatus ?? snapshot?.payment.status ?? "Unavailable";
   const paymentErrorMessage = paymentSession?.errorMessage;
-  const receiptReady = Boolean(receiptId);
-  const totalIsZero = paymentAmount <= 0;
+  const totalIsZero = cartTotals.total <= 0;
   const [now, setNow] = useState(() => Date.now());
   const paymentQrExpired = isExpiredTimestamp(paymentSession?.expiresAt, now);
   const paymentExpiryLabel = formatExpiryCountdown(paymentSession?.expiresAt, now);
@@ -210,9 +211,9 @@ export function CheckoutScreen({
           </ScrollView>
 
           <View style={[styles.totalsCard, { borderColor: theme.border }]}>
-            <SummaryRow label="Subtotal" value={formatCurrency(snapshot?.totals.subtotal, language)} textScale={textScale} theme={theme} />
-            <SummaryRow label="Tax" value={formatCurrency(snapshot?.totals.tax, language)} textScale={textScale} theme={theme} />
-            <SummaryRow label={strings.total} value={formatCurrency(snapshot?.totals.total, language)} textScale={textScale} strong theme={theme} />
+            <SummaryRow label="Subtotal" value={formatCurrency(cartTotals.subtotal, language)} textScale={textScale} theme={theme} />
+            <SummaryRow label="Tax" value={formatCurrency(cartTotals.tax, language)} textScale={textScale} theme={theme} />
+            <SummaryRow label={strings.total} value={formatCurrency(cartTotals.total, language)} textScale={textScale} strong theme={theme} />
           </View>
         </RevealView>
 
@@ -528,7 +529,7 @@ function getCheckoutHelperText({
   }
 
   if (totalIsZero) {
-    return "Receipt total must be greater than 0 before generating payment QR.";
+    return "Cart is empty. Scan items before checkout.";
   }
 
   return paymentErrorMessage || strings.checkoutSubtitle;

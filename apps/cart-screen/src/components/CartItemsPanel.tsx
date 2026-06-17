@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { Animated, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Package2 } from "lucide-react-native";
+import type { ReceiptLine } from "@carto/shared";
 import type { CartSnapshot, UiLanguage } from "../store/cartUiStore";
 import type { AppStrings, ThemePalette } from "../ui/appUi";
 import { formatCurrency, scaleSize, shadowStyle } from "../ui/appUi";
+import { calculateCartTotals } from "./shopperUtils";
 import { ProductPromoPanel } from "./ProductPromoPanel";
 
 interface CartItemsPanelProps {
+  cartItems: ReceiptLine[];
   connected: boolean;
   language: UiLanguage;
   onCheckout: () => void;
@@ -18,7 +21,7 @@ interface CartItemsPanelProps {
 
 interface DisplayCartItem {
   exiting: boolean;
-  item: CartSnapshot["cartItems"][number];
+  item: ReceiptLine;
   opacity: Animated.Value;
   scale: Animated.Value;
   translateX: Animated.Value;
@@ -29,6 +32,7 @@ const ENTER_DURATION = 240;
 const EXIT_DURATION = 220;
 
 export function CartItemsPanel({
+  cartItems,
   connected,
   language,
   onCheckout,
@@ -37,14 +41,14 @@ export function CartItemsPanel({
   textScale,
   theme
 }: CartItemsPanelProps) {
-  const cartItems = snapshot?.cartItems ?? [];
   const checkoutDisabled = !connected || !cartItems.length || snapshot?.state !== "SHOPPING";
   const [displayItems, setDisplayItems] = useState<DisplayCartItem[]>(() => cartItems.map((item) => createDisplayCartItem(item)));
   const lineCount = displayItems.length;
   const itemCount = displayItems.reduce((sum, entry) => sum + entry.item.quantity, 0);
+  const totals = calculateCartTotals(cartItems);
   const totalPulse = useRef(new Animated.Value(1)).current;
   const totalGlow = useRef(new Animated.Value(0)).current;
-  const previousTotal = useRef<number | undefined>(snapshot?.totals.total);
+  const previousTotal = useRef<number | undefined>(totals.total);
 
   useEffect(() => {
     const currentById = new Map(displayItems.map((entry) => [entry.item.lineId, entry]));
@@ -91,7 +95,7 @@ export function CartItemsPanel({
   }, [cartItems, displayItems]);
 
   useEffect(() => {
-    const currentTotal = snapshot?.totals.total;
+    const currentTotal = totals.total;
     if (previousTotal.current === undefined || previousTotal.current === currentTotal) {
       previousTotal.current = currentTotal;
       return;
@@ -125,7 +129,7 @@ export function CartItemsPanel({
         })
       ])
     ]).start();
-  }, [snapshot?.totals.total, totalGlow, totalPulse]);
+  }, [totals.total, totalGlow, totalPulse]);
 
   return (
     <View style={[
@@ -220,7 +224,7 @@ export function CartItemsPanel({
               {strings.total}
             </Text>
             <Text style={[styles.summaryValue, { color: theme.textPrimary, fontSize: scaleSize(22, textScale) }]}>
-              {formatCurrency(snapshot?.totals.total, language)}
+              {formatCurrency(totals.total, language)}
             </Text>
           </View>
         </Animated.View>
@@ -246,7 +250,7 @@ export function CartItemsPanel({
   );
 }
 
-function createDisplayCartItem(item: CartSnapshot["cartItems"][number], entering = false): DisplayCartItem {
+function createDisplayCartItem(item: ReceiptLine, entering = false): DisplayCartItem {
   return {
     exiting: false,
     item,
@@ -305,7 +309,7 @@ function animateCartItemOut(entry: DisplayCartItem, onDone: () => void) {
   });
 }
 
-function sameCartItem(a: CartSnapshot["cartItems"][number], b: CartSnapshot["cartItems"][number]) {
+function sameCartItem(a: ReceiptLine, b: ReceiptLine) {
   return a.lineId === b.lineId
     && a.quantity === b.quantity
     && a.lineTotal === b.lineTotal

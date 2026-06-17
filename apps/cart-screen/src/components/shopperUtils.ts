@@ -1,4 +1,4 @@
-import type { CartSnapshot, ReceiptLine, ShoppingListItem } from "@carto/shared";
+import type { CartSnapshot, ReceiptLine, ShoppingListItem, ShoppingListItemStatus } from "@carto/shared";
 import type { UiLanguage } from "../store/cartUiStore";
 
 export type ShopperItemDetails =
@@ -61,26 +61,53 @@ export function isPendingListItem(item: ShoppingListItem) {
   return item.status !== "SKIPPED" && item.inCartQuantity < item.quantity;
 }
 
-export function getMissingListItems(snapshot: CartSnapshot | null) {
-  return (snapshot?.shoppingList ?? []).filter(isPendingListItem);
+export function getDisplayShoppingListItems(snapshot: CartSnapshot | null, cartItems?: ReceiptLine[]) {
+  const items = snapshot?.shoppingList ?? [];
+  const cartQuantities = buildCartQuantities(cartItems ?? snapshot?.cartItems ?? []);
+
+  return items.map((item) => {
+    const inCartQuantity = cartQuantities.byProductId.get(item.productId)
+      ?? cartQuantities.byName.get(normalizeKey(item.name))
+      ?? 0;
+
+    return {
+      ...item,
+      inCartQuantity,
+      status: deriveShoppingListStatus(item.status, inCartQuantity, item.quantity)
+    } satisfies ShoppingListItem;
+  });
 }
 
-export function getCartQuantity(snapshot: CartSnapshot | null, productId: string) {
-  return (snapshot?.cartItems ?? [])
+export function getMissingListItems(snapshot: CartSnapshot | null, cartItems?: ReceiptLine[]) {
+  return getDisplayShoppingListItems(snapshot, cartItems).filter(isPendingListItem);
+}
+
+export function getCartQuantity(snapshot: CartSnapshot | null, productId: string, cartItems?: ReceiptLine[]) {
+  return (cartItems ?? snapshot?.cartItems ?? [])
     .filter((line) => line.productId === productId)
     .reduce((sum, line) => sum + line.quantity, 0);
 }
 
-export function getNextListItem(snapshot: CartSnapshot | null) {
-  const missing = getMissingListItems(snapshot);
+export function getNextListItem(snapshot: CartSnapshot | null, cartItems?: ReceiptLine[]) {
+  const missing = getMissingListItems(snapshot, cartItems);
   return missing[0];
 }
 
-export function getProgress(snapshot: CartSnapshot | null) {
-  const activeItems = (snapshot?.shoppingList ?? []).filter((item) => item.status !== "SKIPPED");
+export function getProgress(snapshot: CartSnapshot | null, cartItems?: ReceiptLine[]) {
+  const activeItems = getDisplayShoppingListItems(snapshot, cartItems).filter((item) => item.status !== "SKIPPED");
   const required = activeItems.reduce((sum, item) => sum + item.quantity, 0);
   const collected = activeItems.reduce((sum, item) => sum + Math.min(item.inCartQuantity, item.quantity), 0);
   return { collected, required, ratio: required > 0 ? collected / required : 0 };
+}
+
+export function calculateCartTotals(cartItems: ReceiptLine[]) {
+  const subtotal = roundMoney(cartItems.reduce((sum, item) => sum + item.lineTotal, 0));
+  return {
+    subtotal,
+    discount: 0,
+    tax: 0,
+    total: subtotal
+  };
 }
 
 export function formatLocation(item?: Pick<ShoppingListItem | ReceiptLine, "category" | "mapNodeId" | "shelfId"> | null) {
@@ -110,4 +137,41 @@ export function formatItemStatus(status?: string) {
   if (status === "REMOVED") return "Unavailable";
   if (status === "PENDING") return "Pending";
   return status ?? "In cart";
+}
+
+function buildCartQuantities(cartItems: ReceiptLine[]) {
+  const byProductId = new Map<string, number>();
+  const byName = new Map<string, number>();
+
+  for (const item of cartItems) {
+    byProductId.set(item.productId, (byProductId.get(item.productId) ?? 0) + item.quantity);
+    byName.set(normalizeKey(item.name), (byName.get(normalizeKey(item.name)) ?? 0) + item.quantity);
+  }
+
+  return { byName, byProductId };
+}
+
+function deriveShoppingListStatus(
+  currentStatus: ShoppingListItemStatus | undefined,
+  inCartQuantity: number,
+  requiredQuantity: number
+) {
+  if (currentStatus === "REMOVED" || currentStatus === "SKIPPED") {
+    return currentStatus;
+  }
+  if (inCartQuantity <= 0) {
+    return "PENDING";
+  }
+  if (inCartQuantity < requiredQuantity) {
+    return "PARTIAL";
+  }
+  return "IN_CART";
+}
+
+function normalizeKey(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function roundMoney(value: number) {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
 }

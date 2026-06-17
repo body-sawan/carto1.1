@@ -94,9 +94,6 @@ export function WelcomeScreen({
         <Text style={[styles.title, { color: theme.textPrimary, fontSize: scaleSize(compact ? 30 : 38, textScale) }]}>
           {strings.welcomeTitle}
         </Text>
-        <Text style={[styles.message, { color: theme.textSecondary, fontSize: scaleSize(16, textScale) }]}>
-          {strings.welcomeMessage}
-        </Text>
 
         <View style={styles.badges}>
           <StatusBadge
@@ -255,12 +252,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontWeight: "900",
-    textAlign: "center"
-  },
-  message: {
-    fontWeight: "700",
-    lineHeight: 22,
-    maxWidth: 620,
+    marginBottom: 2,
     textAlign: "center"
   },
   badges: {

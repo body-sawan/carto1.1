@@ -73,7 +73,16 @@ async function readJsonResponse<T>(response: Response): Promise<T> {
 
 async function postCartoLocalAction<T>(path: string, body: unknown) {
   const payload = (body && typeof body === "object" ? body : {}) as { barcode?: string; productId?: string };
-  const { sessionControlMode, snapshot, setBackendStatus, setConnected, setSessionControlMode, setSnapshot } = useCartUiStore.getState();
+  const {
+    addDeviceCartItem,
+    removeDeviceCartItem,
+    sessionControlMode,
+    snapshot,
+    setBackendStatus,
+    setConnected,
+    setSessionControlMode,
+    setSnapshot
+  } = useCartUiStore.getState();
   const product = payload.productId ? findCatalogProductById(payload.productId) : undefined;
   const isLocalGuest = sessionControlMode === "local_guest";
 
@@ -88,6 +97,18 @@ async function postCartoLocalAction<T>(path: string, body: unknown) {
         productId: payload.productId,
         quantity: 1
       }, snapshot);
+      if (product) {
+        addDeviceCartItem({
+          barcode: product.barcode,
+          category: product.category,
+          mapNodeId: product.mapNodeId,
+          name: product.name,
+          productId: product.id,
+          quantity: 1,
+          shelfId: product.shelfId,
+          unitPrice: product.price
+        });
+      }
       setConnected(true);
       setBackendStatus("active");
       setSessionControlMode("full");
@@ -105,6 +126,9 @@ async function postCartoLocalAction<T>(path: string, body: unknown) {
         productId: payload.productId,
         quantity: 1
       }, snapshot);
+      if (payload.productId) {
+        removeDeviceCartItem(payload.productId, 1);
+      }
       setConnected(true);
       setBackendStatus("active");
       setSessionControlMode("full");

@@ -1,4 +1,5 @@
 import { StyleSheet, View, useWindowDimensions } from "react-native";
+import type { ReceiptLine } from "@carto/shared";
 import type { CartSnapshot, ListDeliveryStatus, UiLanguage } from "../store/cartUiStore";
 import type { AppStrings, ThemePalette } from "../ui/appUi";
 import { CartItemsPanel } from "./CartItemsPanel";
@@ -7,6 +8,7 @@ import { ShoppingListPanel } from "./ShoppingListPanel";
 import { StaticMapViewer } from "./StaticMapViewer";
 
 interface HomeScreenProps {
+  cartItems: ReceiptLine[];
   connected: boolean;
   language: UiLanguage;
   listStatus: ListDeliveryStatus;
@@ -21,6 +23,7 @@ interface HomeScreenProps {
 }
 
 export function HomeScreen({
+  cartItems,
   connected,
   language,
   listStatus,
@@ -40,6 +43,7 @@ export function HomeScreen({
     <View style={[styles.layout, stacked ? styles.layoutStacked : null]}>
       <RevealView style={stacked ? [styles.leftColumn, styles.fullWidth] : styles.leftColumn}>
         <ShoppingListPanel
+          cartItems={cartItems}
           language={language}
           listStatus={listStatus}
           onRetryListStatus={onRetryListStatus}
@@ -63,6 +67,7 @@ export function HomeScreen({
 
       <RevealView delay={160} style={stacked ? [styles.rightColumn, styles.fullWidth] : styles.rightColumn}>
         <CartItemsPanel
+          cartItems={cartItems}
           connected={connected}
           language={language}
           onCheckout={onCheckout}

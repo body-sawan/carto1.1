@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Image,
   Platform,
@@ -9,7 +9,6 @@ import {
   type GestureResponderEvent,
   type LayoutChangeEvent
 } from "react-native";
-import { Minus, Plus, RotateCcw } from "lucide-react-native";
 import type { UiLanguage } from "../store/cartUiStore";
 import type { AppStrings, ThemePalette } from "../ui/appUi";
 import { scaleSize, shadowStyle } from "../ui/appUi";
@@ -19,7 +18,7 @@ interface Size {
   width: number;
 }
 
-interface PanOffset {
+interface Point {
   x: number;
   y: number;
 }
@@ -31,33 +30,16 @@ interface StaticMapViewerProps {
   theme: ThemePalette;
 }
 
-interface MarkerDefinition {
-  color: "accent" | "success" | "warning";
-  id: string;
-  x: number;
-  y: number;
-}
-
-const MIN_ZOOM = 1;
-const MAX_ZOOM = 4;
-const ZOOM_STEP = 0.25;
-const DRAG_THRESHOLD = 3;
 const FALLBACK_VIEWPORT_HEIGHT = 520;
 const FALLBACK_MAP_SIZE: Size = { width: 1000, height: 700 };
-const MARKERS: MarkerDefinition[] = [
-  { id: "entrance", x: 0.26, y: 0.86, color: "accent" },
-  { id: "bakery", x: 0.3, y: 0.62, color: "warning" },
-  { id: "dairy", x: 0.34, y: 0.34, color: "accent" },
-  { id: "frozen", x: 0.56, y: 0.26, color: "success" },
-  { id: "snacks", x: 0.57, y: 0.48, color: "warning" },
-  { id: "drinks", x: 0.74, y: 0.32, color: "success" },
-  { id: "checkout", x: 0.74, y: 0.74, color: "accent" }
-];
+const MIN_SCALE = 0.7;
+const MAX_SCALE = 4;
+const ZOOM_STEP = 0.2;
 
-export function StaticMapViewer({ language, strings, textScale, theme }: StaticMapViewerProps) {
+export function StaticMapViewer({ strings, textScale, theme }: StaticMapViewerProps) {
   const mapImageSource = useMemo(() => {
     try {
-      return require("../../assets/store-map-friendly.png");
+      return require("../../assets/store-map.png");
     } catch {
       return null;
     }
@@ -73,46 +55,70 @@ export function StaticMapViewer({ language, strings, textScale, theme }: StaticM
       return null;
     }
   }, [mapImageSource]);
-  const [containerSize, setContainerSize] = useState<Size>({ width: 0, height: 0 });
   const [didImageLoadFail, setDidImageLoadFail] = useState(false);
-  const [zoom, setZoom] = useState(1);
-  const [pan, setPan] = useState<PanOffset>({ x: 0, y: 0 });
-  const dragState = useRef<{
-    moved: boolean;
-    startPageX: number;
-    startPageY: number;
-    startPan: PanOffset;
-  } | null>(null);
+  const [viewportSize, setViewportSize] = useState<Size>({ width: 0, height: 0 });
+  const [scale, setScale] = useState(1);
+  const [offsetX, setOffsetX] = useState(0);
+  const [offsetY, setOffsetY] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const scaleRef = useRef(1);
+  const offsetXRef = useRef(0);
+  const offsetYRef = useRef(0);
+  const lastPointerPositionRef = useRef<Point | null>(null);
 
   useEffect(() => {
     setDidImageLoadFail(false);
   }, [mapImageSource]);
 
+  useEffect(() => {
+    scaleRef.current = scale;
+  }, [scale]);
+
+  useEffect(() => {
+    offsetXRef.current = offsetX;
+  }, [offsetX]);
+
+  useEffect(() => {
+    offsetYRef.current = offsetY;
+  }, [offsetY]);
+
+  const shouldShowMapFallback = !mapImageSource || didImageLoadFail;
   const mapSize = {
     width: resolvedMapSource?.width ?? FALLBACK_MAP_SIZE.width,
     height: resolvedMapSource?.height ?? FALLBACK_MAP_SIZE.height
   };
-  const shouldShowMapPlaceholder = !mapImageSource || didImageLoadFail;
+  const viewportWidth = viewportSize.width > 0 ? viewportSize.width : 820;
+  const viewportHeight = viewportSize.height > 0 ? viewportSize.height : FALLBACK_VIEWPORT_HEIGHT;
+  const fitScale = Math.min(viewportWidth / mapSize.width, viewportHeight / mapSize.height);
+  const baseImageWidth = mapSize.width * fitScale;
+  const baseImageHeight = mapSize.height * fitScale;
+  const imageLeft = (viewportWidth - baseImageWidth) / 2;
+  const imageTop = (viewportHeight - baseImageHeight) / 2;
 
-  const viewportSize = {
-    width: containerSize.width > 0 ? containerSize.width : 820,
-    height: containerSize.height > 0 ? containerSize.height : FALLBACK_VIEWPORT_HEIGHT
-  };
+  useEffect(() => {
+    const constrainedOffset = constrainOffsets(offsetX, offsetY, scale, {
+      width: baseImageWidth,
+      height: baseImageHeight
+    }, {
+      width: viewportWidth,
+      height: viewportHeight
+    });
 
-  const fitScale = Math.min(viewportSize.width / mapSize.width, viewportSize.height / mapSize.height);
+    if (constrainedOffset.x !== offsetX) {
+      offsetXRef.current = constrainedOffset.x;
+      setOffsetX(constrainedOffset.x);
+    }
+    if (constrainedOffset.y !== offsetY) {
+      offsetYRef.current = constrainedOffset.y;
+      setOffsetY(constrainedOffset.y);
+    }
+  }, [baseImageHeight, baseImageWidth, offsetX, offsetY, scale, viewportHeight, viewportWidth]);
 
-  const renderedMap = {
-    width: mapSize.width * fitScale * zoom,
-    height: mapSize.height * fitScale * zoom,
-    left: ((viewportSize.width - (mapSize.width * fitScale * zoom)) / 2) + pan.x,
-    top: ((viewportSize.height - (mapSize.height * fitScale * zoom)) / 2) + pan.y
-  };
-
-  function handleLayout(event: LayoutChangeEvent) {
+  function handleViewportLayout(event: LayoutChangeEvent) {
     const nextWidth = Math.round(event.nativeEvent.layout.width);
     const nextHeight = Math.round(event.nativeEvent.layout.height);
 
-    setContainerSize((current) => (
+    setViewportSize((current) => (
       current.width === nextWidth && current.height === nextHeight
         ? current
         : { width: nextWidth, height: nextHeight }
@@ -120,42 +126,72 @@ export function StaticMapViewer({ language, strings, textScale, theme }: StaticM
   }
 
   function handleZoom(delta: number) {
-    setZoom((current) => clamp(current + delta, MIN_ZOOM, MAX_ZOOM));
+    const nextScale = clamp(scaleRef.current + delta, MIN_SCALE, MAX_SCALE);
+    const constrainedOffset = constrainOffsets(offsetXRef.current, offsetYRef.current, nextScale, {
+      width: baseImageWidth,
+      height: baseImageHeight
+    }, {
+      width: viewportWidth,
+      height: viewportHeight
+    });
+
+    scaleRef.current = nextScale;
+    offsetXRef.current = constrainedOffset.x;
+    offsetYRef.current = constrainedOffset.y;
+    setScale(nextScale);
+    setOffsetX(constrainedOffset.x);
+    setOffsetY(constrainedOffset.y);
   }
 
   function handleReset() {
-    setZoom(1);
-    setPan({ x: 0, y: 0 });
+    scaleRef.current = 1;
+    offsetXRef.current = 0;
+    offsetYRef.current = 0;
+    setScale(1);
+    setOffsetX(0);
+    setOffsetY(0);
+    setIsDragging(false);
+    lastPointerPositionRef.current = null;
   }
 
   function handleResponderGrant(event: GestureResponderEvent) {
-    dragState.current = {
-      startPageX: event.nativeEvent.pageX,
-      startPageY: event.nativeEvent.pageY,
-      startPan: pan,
-      moved: false
+    if (shouldShowMapFallback) return;
+    lastPointerPositionRef.current = {
+      x: event.nativeEvent.pageX,
+      y: event.nativeEvent.pageY
     };
+    setIsDragging(true);
   }
 
   function handleResponderMove(event: GestureResponderEvent) {
-    const drag = dragState.current;
-    if (!drag) return;
+    if (shouldShowMapFallback) return;
+    const lastPointerPosition = lastPointerPositionRef.current;
+    if (!lastPointerPosition) return;
 
-    const dx = event.nativeEvent.pageX - drag.startPageX;
-    const dy = event.nativeEvent.pageY - drag.startPageY;
-    const moved = Math.hypot(dx, dy) >= DRAG_THRESHOLD;
-    drag.moved = drag.moved || moved;
+    const nextPointerPosition = {
+      x: event.nativeEvent.pageX,
+      y: event.nativeEvent.pageY
+    };
+    const deltaX = nextPointerPosition.x - lastPointerPosition.x;
+    const deltaY = nextPointerPosition.y - lastPointerPosition.y;
+    const constrainedOffset = constrainOffsets(offsetXRef.current + deltaX, offsetYRef.current + deltaY, scaleRef.current, {
+      width: baseImageWidth,
+      height: baseImageHeight
+    }, {
+      width: viewportWidth,
+      height: viewportHeight
+    });
 
-    if (!drag.moved) return;
-
-    setPan(constrainPan({
-      x: drag.startPan.x + dx,
-      y: drag.startPan.y + dy
-    }, viewportSize, mapSize, fitScale, zoom));
+    lastPointerPositionRef.current = nextPointerPosition;
+    offsetXRef.current = constrainedOffset.x;
+    offsetYRef.current = constrainedOffset.y;
+    setOffsetX(constrainedOffset.x);
+    setOffsetY(constrainedOffset.y);
   }
 
   function handleResponderEnd() {
-    dragState.current = null;
+    setIsDragging(false);
+    lastPointerPositionRef.current = null;
   }
 
   function handleWheel(event: unknown) {
@@ -163,6 +199,10 @@ export function StaticMapViewer({ language, strings, textScale, theme }: StaticM
     wheelEvent.preventDefault?.();
     handleZoom((wheelEvent.deltaY ?? 0) > 0 ? -ZOOM_STEP : ZOOM_STEP);
   }
+
+  const cursorStyle = Platform.OS === "web"
+    ? ({ cursor: isDragging ? "grabbing" : "grab" } as any)
+    : null;
 
   return (
     <View style={[
@@ -178,48 +218,30 @@ export function StaticMapViewer({ language, strings, textScale, theme }: StaticM
           <Text style={[styles.title, { color: theme.textPrimary, fontSize: scaleSize(22, textScale) }]}>
             {strings.mapTitle}
           </Text>
-          <Text style={[styles.subtitle, { color: theme.textMuted, fontSize: scaleSize(13, textScale) }]}>
-            {strings.mapSubtitle}
-          </Text>
         </View>
+
         <View style={styles.controls}>
-          <ControlButton
-            accessibilityLabel="Zoom out"
-            disabled={zoom <= MIN_ZOOM}
-            icon={<Minus size={18} color={theme.textPrimary} />}
+          <MapControlButton
+            label="-"
             onPress={() => handleZoom(-ZOOM_STEP)}
+            textScale={textScale}
             theme={theme}
           />
-          <ControlButton
-            accessibilityLabel="Zoom in"
-            disabled={zoom >= MAX_ZOOM}
-            icon={<Plus size={18} color={theme.textPrimary} />}
+          <MapControlButton
+            label="+"
             onPress={() => handleZoom(ZOOM_STEP)}
+            textScale={textScale}
             theme={theme}
           />
-          <Pressable
-            accessibilityRole="button"
+          <MapControlButton
+            label="Reset"
             onPress={handleReset}
-            style={({ pressed }) => [
-              styles.resetButton,
-              {
-                backgroundColor: theme.card,
-                borderColor: theme.border,
-                transform: [{ scale: pressed ? 0.98 : 1 }]
-              }
-            ]}
-          >
-            <RotateCcw size={16} color={theme.textPrimary} />
-            <Text style={[styles.resetText, { color: theme.textPrimary, fontSize: scaleSize(12, textScale) }]}>
-              {strings.resetView}
-            </Text>
-          </Pressable>
+            textScale={textScale}
+            theme={theme}
+            wide
+          />
         </View>
       </View>
-
-      <Text style={[styles.helper, { color: theme.textMuted, fontSize: scaleSize(12, textScale) }]}>
-        {strings.dragHint}
-      </Text>
 
       <View
         style={[
@@ -229,167 +251,85 @@ export function StaticMapViewer({ language, strings, textScale, theme }: StaticM
             borderColor: theme.border
           }
         ]}
-        onLayout={handleLayout}
-        onMoveShouldSetResponder={() => !shouldShowMapPlaceholder}
-        onResponderGrant={handleResponderGrant}
-        onResponderMove={handleResponderMove}
-        onResponderRelease={handleResponderEnd}
-        onResponderTerminate={handleResponderEnd}
-        onStartShouldSetResponder={() => !shouldShowMapPlaceholder}
-        {...(Platform.OS === "web" ? { onWheel: handleWheel } : {})}
       >
-        {shouldShowMapPlaceholder ? (
+        {shouldShowMapFallback ? (
           <View style={[styles.stateCard, { backgroundColor: theme.errorSoft }]}>
             <Text style={[styles.errorTitle, { color: theme.error, fontSize: scaleSize(18, textScale) }]}>
-              {language === "ar" ? "\u0627\u0644\u062e\u0631\u064a\u0637\u0629 \u063a\u064a\u0631 \u0645\u062a\u0627\u062d\u0629" : "Map unavailable"}
-            </Text>
-            <Text style={[styles.errorText, { color: theme.textSecondary, fontSize: scaleSize(13, textScale) }]}>
-              {language === "ar"
-                ? "\u0644\u0645 \u064a\u062a\u0645 \u062a\u062d\u0645\u064a\u0644 \u0635\u0648\u0631\u0629 \u0627\u0644\u062e\u0631\u064a\u0637\u0629."
-                : "The bundled store map image could not be loaded."}
-            </Text>
-            <Text style={[styles.stateText, { color: theme.textMuted, fontSize: scaleSize(12, textScale) }]}>
-              {language === "ar"
-                ? "\u064a\u0645\u0643\u0646\u0643 \u0625\u0643\u0645\u0627\u0644 \u0627\u0644\u062a\u0633\u0648\u0642 \u0628\u064a\u0646\u0645\u0627 \u064a\u0638\u0647\u0631 \u0628\u062f\u064a\u0644 \u0627\u0644\u062e\u0631\u064a\u0637\u0629."
-                : "You can keep shopping while the cart shows this fallback view."}
+              Store map unavailable
             </Text>
           </View>
         ) : (
-          <View style={styles.mapCanvas}>
-            <View
-              pointerEvents="none"
-              style={[
-                styles.softGlow,
-                styles.softGlowTop,
-                { backgroundColor: theme.accentSoft }
-              ]}
-            />
-            <View
-              pointerEvents="none"
-              style={[
-                styles.softGlow,
-                styles.softGlowBottom,
-                { backgroundColor: theme.successSoft }
-              ]}
-            />
-            <View
-              pointerEvents="none"
-              style={[
-                styles.mapPlate,
-                {
-                  backgroundColor: theme.surface,
-                  height: renderedMap.height,
-                  left: renderedMap.left,
-                  top: renderedMap.top,
-                  width: renderedMap.width
-                }
-              ]}
-            />
+          <View
+            onLayout={handleViewportLayout}
+            onMoveShouldSetResponder={() => !shouldShowMapFallback}
+            onResponderGrant={handleResponderGrant}
+            onResponderMove={handleResponderMove}
+            onResponderRelease={handleResponderEnd}
+            onResponderTerminate={handleResponderEnd}
+            onStartShouldSetResponder={() => !shouldShowMapFallback}
+            style={[
+              styles.imageFrame,
+              { backgroundColor: theme.surface },
+              cursorStyle
+            ]}
+            {...(Platform.OS === "web" ? { onWheel: handleWheel } : {})}
+          >
             <Image
               onError={() => setDidImageLoadFail(true)}
-              resizeMode="cover"
+              resizeMode="stretch"
               source={mapImageSource}
               style={[
                 styles.mapImage,
                 {
-                  height: renderedMap.height,
-                  left: renderedMap.left,
-                  opacity: 0.94,
-                  top: renderedMap.top,
-                  width: renderedMap.width
+                  height: baseImageHeight,
+                  left: imageLeft,
+                  top: imageTop,
+                  width: baseImageWidth,
+                  transform: [
+                    { translateX: offsetX },
+                    { translateY: offsetY },
+                    { scale }
+                  ]
                 }
               ]}
             />
-            <View
-              pointerEvents="none"
-              style={[
-                styles.mapWash,
-                {
-                  height: renderedMap.height,
-                  left: renderedMap.left,
-                  top: renderedMap.top,
-                  width: renderedMap.width
-                }
-              ]}
-            />
-            {MARKERS.map((marker) => {
-              const colors = getMarkerColors(marker.color, theme);
-              return (
-                <View
-                  key={marker.id}
-                  style={[
-                    styles.markerWrap,
-                    {
-                      left: renderedMap.left + (renderedMap.width * marker.x),
-                      top: renderedMap.top + (renderedMap.height * marker.y)
-                    }
-                  ]}
-                >
-                  <View style={[styles.markerHalo, { backgroundColor: colors.soft }]} />
-                  <View style={[styles.markerDot, { backgroundColor: colors.main }]} />
-                  <View style={[styles.markerLabel, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                    <Text style={[styles.markerLabelText, { color: theme.textPrimary, fontSize: scaleSize(11, textScale) }]}>
-                      {getMarkerLabel(marker.id, language)}
-                    </Text>
-                  </View>
-                </View>
-              );
-            })}
           </View>
         )}
-      </View>
-
-      <Text style={[styles.legendTitle, { color: theme.textMuted, fontSize: scaleSize(11, textScale) }]}>
-        {strings.mapLegend}
-      </Text>
-
-      <View style={styles.legendItems}>
-        {MARKERS.map((marker) => {
-          const colors = getMarkerColors(marker.color, theme);
-          return (
-            <View key={marker.id} style={[styles.legendChip, { backgroundColor: colors.soft }]}>
-              <View style={[styles.legendDot, { backgroundColor: colors.main }]} />
-              <Text style={[styles.legendText, { color: colors.main, fontSize: scaleSize(12, textScale) }]}>
-                {getMarkerLabel(marker.id, language)}
-              </Text>
-            </View>
-          );
-        })}
       </View>
     </View>
   );
 }
 
-function ControlButton({
-  accessibilityLabel,
-  disabled,
-  icon,
+function MapControlButton({
+  label,
   onPress,
-  theme
+  textScale,
+  theme,
+  wide = false
 }: {
-  accessibilityLabel: string;
-  disabled: boolean;
-  icon: ReactNode;
+  label: string;
   onPress: () => void;
+  textScale: number;
   theme: ThemePalette;
+  wide?: boolean;
 }) {
   return (
     <Pressable
-      accessibilityLabel={accessibilityLabel}
       accessibilityRole="button"
-      disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
         styles.controlButton,
+        wide ? styles.controlButtonWide : null,
         {
           backgroundColor: theme.card,
           borderColor: theme.border,
-          transform: [{ scale: pressed && !disabled ? 0.98 : 1 }]
-        },
-        disabled ? styles.controlButtonDisabled : null
+          transform: [{ scale: pressed ? 0.98 : 1 }]
+        }
       ]}
     >
-      {icon}
+      <Text style={[styles.controlButtonText, { color: theme.textPrimary, fontSize: scaleSize(14, textScale) }]}>
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -398,42 +338,16 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-function constrainPan(
-  nextPan: PanOffset,
-  viewportSize: Size,
-  mapSize: Size | null,
-  fitScale: number,
-  zoom: number
-) {
-  if (!mapSize) return nextPan;
-  const width = mapSize.width * fitScale * zoom;
-  const height = mapSize.height * fitScale * zoom;
-  const maxX = Math.max(0, ((width - viewportSize.width) / 2)) + 64;
-  const maxY = Math.max(0, ((height - viewportSize.height) / 2)) + 64;
+function constrainOffsets(offsetX: number, offsetY: number, scale: number, imageSize: Size, viewportSize: Size) {
+  const scaledWidth = imageSize.width * scale;
+  const scaledHeight = imageSize.height * scale;
+  const maxOffsetX = Math.max(0, (scaledWidth - viewportSize.width) / 2);
+  const maxOffsetY = Math.max(0, (scaledHeight - viewportSize.height) / 2);
+
   return {
-    x: clamp(nextPan.x, -maxX, maxX),
-    y: clamp(nextPan.y, -maxY, maxY)
+    x: clamp(offsetX, -maxOffsetX, maxOffsetX),
+    y: clamp(offsetY, -maxOffsetY, maxOffsetY)
   };
-}
-
-function getMarkerLabel(markerId: string, language: UiLanguage) {
-  const labels = {
-    entrance: language === "ar" ? "\u0627\u0644\u0645\u062f\u062e\u0644" : "Entrance",
-    bakery: language === "ar" ? "\u0627\u0644\u0645\u062e\u0628\u0648\u0632\u0627\u062a" : "Bakery",
-    dairy: language === "ar" ? "\u0627\u0644\u0623\u0644\u0628\u0627\u0646" : "Dairy",
-    frozen: language === "ar" ? "\u0627\u0644\u0645\u062c\u0645\u062f\u0627\u062a" : "Frozen",
-    snacks: language === "ar" ? "\u0627\u0644\u0648\u062c\u0628\u0627\u062a" : "Snacks",
-    drinks: language === "ar" ? "\u0627\u0644\u0645\u0634\u0631\u0648\u0628\u0627\u062a" : "Drinks",
-    checkout: language === "ar" ? "\u0627\u0644\u062f\u0641\u0639" : "Checkout"
-  };
-
-  return labels[markerId as keyof typeof labels] ?? markerId;
-}
-
-function getMarkerColors(color: MarkerDefinition["color"], theme: ThemePalette) {
-  if (color === "success") return { main: theme.success, soft: theme.successSoft };
-  if (color === "warning") return { main: theme.warning, soft: theme.warningSoft };
-  return { main: theme.accent, soft: theme.accentSoft };
 }
 
 const styles = StyleSheet.create({
@@ -459,9 +373,6 @@ const styles = StyleSheet.create({
   title: {
     fontWeight: "800"
   },
-  subtitle: {
-    fontWeight: "600"
-  },
   controls: {
     flexDirection: "row",
     alignItems: "center",
@@ -469,31 +380,19 @@ const styles = StyleSheet.create({
     flexWrap: "wrap"
   },
   controlButton: {
-    width: 40,
+    minWidth: 40,
     height: 40,
     borderRadius: 12,
     borderWidth: 1,
+    paddingHorizontal: 12,
     alignItems: "center",
     justifyContent: "center"
   },
-  controlButtonDisabled: {
-    opacity: 0.45
+  controlButtonWide: {
+    minWidth: 88
   },
-  resetButton: {
-    minHeight: 40,
-    borderRadius: 12,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8
-  },
-  resetText: {
-    fontWeight: "700"
-  },
-  helper: {
-    fontWeight: "600"
+  controlButtonText: {
+    fontWeight: "800"
   },
   viewport: {
     flex: 1,
@@ -501,117 +400,24 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     overflow: "hidden",
     borderWidth: 1,
-    position: "relative"
+    padding: 12
   },
-  mapCanvas: {
+  imageFrame: {
     flex: 1,
-    minHeight: FALLBACK_VIEWPORT_HEIGHT,
-    position: "relative",
+    borderRadius: 16,
     overflow: "hidden"
   },
-  softGlow: {
-    position: "absolute",
-    width: 220,
-    height: 220,
-    borderRadius: 999,
-    opacity: 0.62
-  },
-  softGlowTop: {
-    top: 24,
-    left: 28
-  },
-  softGlowBottom: {
-    right: 36,
-    bottom: 28
-  },
-  mapPlate: {
-    position: "absolute",
-    borderRadius: 28
-  },
   mapImage: {
-    position: "absolute",
-    borderRadius: 28
-  },
-  mapWash: {
-    position: "absolute",
-    borderRadius: 28,
-    backgroundColor: "rgba(255, 255, 255, 0.08)"
-  },
-  markerWrap: {
-    position: "absolute",
-    alignItems: "center",
-    justifyContent: "center",
-    marginLeft: -8,
-    marginTop: -8
-  },
-  markerHalo: {
-    position: "absolute",
-    width: 30,
-    height: 30,
-    borderRadius: 999,
-    opacity: 0.78
-  },
-  markerDot: {
-    width: 14,
-    height: 14,
-    borderRadius: 999,
-    borderWidth: 2,
-    borderColor: "#ffffff"
-  },
-  markerLabel: {
-    marginTop: 8,
-    borderRadius: 10,
-    borderWidth: 1,
-    paddingHorizontal: 8,
-    paddingVertical: 4
-  },
-  markerLabelText: {
-    fontWeight: "700"
+    position: "absolute"
   },
   stateCard: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 24,
-    gap: 8
-  },
-  stateTitle: {
-    fontWeight: "800"
-  },
-  stateText: {
-    fontWeight: "600",
-    textAlign: "center"
+    paddingHorizontal: 24
   },
   errorTitle: {
-    fontWeight: "800"
-  },
-  errorText: {
-    fontWeight: "600",
+    fontWeight: "800",
     textAlign: "center"
-  },
-  legendTitle: {
-    fontWeight: "900",
-    textTransform: "uppercase"
-  },
-  legendItems: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8
-  },
-  legendChip: {
-    minHeight: 32,
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8
-  },
-  legendDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 999
-  },
-  legendText: {
-    fontWeight: "700"
   }
 });

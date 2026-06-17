@@ -5,14 +5,13 @@ import {
   addCartoItem,
   applyPaymentSessionToSnapshot,
   buildWaitingSnapshot,
-  getActiveSession,
   disconnectCartoSession,
   getCartQrCode,
   requestCartoPaymentQr,
   removeCartoItem,
   resetMockOnlineSession
 } from "./cartoApi";
-import type { CartoActiveSessionData, CartoPaymentQrItemPayload } from "./cartoApi";
+import type { CartoPaymentQrItemPayload } from "./cartoApi";
 import {
   cancelLocalGuestCheckout,
   confirmLocalGuestPayment,
@@ -27,6 +26,8 @@ import { useCartoActiveSession } from "./useCartoActiveSession";
 import { useCartoPaymentStatus } from "./useCartoPaymentStatus";
 import { useBackendHealth } from "./useBackendHealth";
 import { useCartSocket } from "./useCartSocket";
+import { findCatalogProductById } from "./cartCatalog";
+import { calculateCartTotals } from "../components/shopperUtils";
 
 type RuntimeActions = {
   cancelCheckout: () => Promise<void>;
@@ -45,11 +46,15 @@ export function useCartRuntime(): RuntimeActions {
   const backendMode = CART_SCREEN_BACKEND_MODE;
   const edgeSocket = useCartSocket(backendMode === "edge");
   const edgeHealth = useBackendHealth(backendMode === "edge");
+  const deviceCartItems = useCartUiStore((state) => state.deviceCartItems);
   const snapshot = useCartUiStore((state) => state.snapshot);
   const sessionControlMode = useCartUiStore((state) => state.sessionControlMode);
+  const addDeviceCartItem = useCartUiStore((state) => state.addDeviceCartItem);
   const setBackendStatus = useCartUiStore((state) => state.setBackendStatus);
+  const clearDeviceCart = useCartUiStore((state) => state.clearDeviceCart);
   const setConnected = useCartUiStore((state) => state.setConnected);
   const clearPaymentSession = useCartUiStore((state) => state.clearPaymentSession);
+  const removeDeviceCartItem = useCartUiStore((state) => state.removeDeviceCartItem);
   const setListStatus = useCartUiStore((state) => state.setListStatus);
   const setPaymentSession = useCartUiStore((state) => state.setPaymentSession);
   const setSessionControlMode = useCartUiStore((state) => state.setSessionControlMode);
@@ -111,6 +116,7 @@ export function useCartRuntime(): RuntimeActions {
           setBackendStatus("waiting");
           setListStatus("waiting", 0);
           setSessionControlMode("full");
+          clearDeviceCart();
           setSnapshot(waitingSnapshot);
           requestActiveSessionRefresh();
           return;
@@ -139,6 +145,7 @@ export function useCartRuntime(): RuntimeActions {
         setBackendStatus("waiting");
         setListStatus("refreshing_qr", 0);
         setSessionControlMode("full");
+        clearDeviceCart();
         setSnapshot(buildWaitingSnapshot(effectiveCartCode));
 
         const qrData = await getCartQrCode(effectiveCartCode);
@@ -169,6 +176,7 @@ export function useCartRuntime(): RuntimeActions {
           productId,
           quantity
         }, snapshotRef.current);
+        removeDeviceCartItem(productId, quantity);
 
         setConnected(true);
         setBackendStatus("active");
@@ -200,6 +208,7 @@ export function useCartRuntime(): RuntimeActions {
         }
 
         resetMockOnlineSession();
+        clearDeviceCart();
         setConnected(true);
         setBackendStatus("waiting");
         setListStatus("waiting", 0);
@@ -224,6 +233,10 @@ export function useCartRuntime(): RuntimeActions {
           throw new Error("No active backend session is available for checkout.");
         }
 
+        if (!deviceCartItems.length) {
+          throw new Error("Cart is empty. Scan items before checkout.");
+        }
+
         await createBackendPaymentSession();
       },
       startShopping: async () => {
@@ -246,6 +259,7 @@ export function useCartRuntime(): RuntimeActions {
           productId,
           quantity
         }, snapshotRef.current);
+        syncDeviceCartProduct(productId, quantity);
 
         setConnected(true);
         setBackendStatus("active");
@@ -253,7 +267,23 @@ export function useCartRuntime(): RuntimeActions {
         setSnapshot(snapshot);
       }
     };
-  }, [backendMode, clearPaymentSession, edgeSocket, requestActiveSessionRefresh, sessionControlMode, setBackendStatus, setConnected, setListStatus, setPaymentSession, setSessionControlMode, setSnapshot]);
+  }, [
+    addDeviceCartItem,
+    backendMode,
+    clearDeviceCart,
+    clearPaymentSession,
+    deviceCartItems.length,
+    edgeSocket,
+    removeDeviceCartItem,
+    requestActiveSessionRefresh,
+    sessionControlMode,
+    setBackendStatus,
+    setConnected,
+    setListStatus,
+    setPaymentSession,
+    setSessionControlMode,
+    setSnapshot
+  ]);
 
   async function createBackendPaymentSession() {
     const currentSnapshot = snapshotRef.current;
@@ -262,7 +292,7 @@ export function useCartRuntime(): RuntimeActions {
     }
 
     const cartCode = currentSnapshot.pairing?.cartId || currentSnapshot.cartId || CART_CODE;
-    const paymentRequest = await buildPaymentQrRequest(cartCode, currentSnapshot);
+    const paymentRequest = buildPaymentQrRequest(currentSnapshot);
     const amount = paymentRequest.amount;
     const currency = paymentRequest.currency;
     const cartSessionId = paymentRequest.cartSessionId;
@@ -284,14 +314,13 @@ export function useCartRuntime(): RuntimeActions {
 
     if (IS_DEV) {
       console.log("[payment-qr] endpoint", `/api/carts/${encodeURIComponent(cartCode)}/payment-qr`);
-      console.log("[payment-qr] cartCode", cartCode);
       console.log("[payment-qr] amount", amount);
       console.log("[payment-qr] currency", currency);
-      console.log("[payment-qr] items count", paymentRequest.items.length);
+      console.log("[payment-qr] localDeviceCartItems count", deviceCartItems.length);
     }
 
     if (!paymentRequest.items.length) {
-      const errorMessage = "Receipt items are not ready yet.";
+      const errorMessage = "Cart is empty. Scan items before checkout.";
       const failedPaymentSession = createFailedPaymentSession(basePaymentSession, errorMessage);
       setPaymentSession(failedPaymentSession);
       setSnapshot(applyPaymentSessionToSnapshot(currentSnapshot, failedPaymentSession));
@@ -299,7 +328,7 @@ export function useCartRuntime(): RuntimeActions {
     }
 
     if (amount <= 0) {
-      const errorMessage = "Receipt total must be greater than 0 before generating payment QR.";
+      const errorMessage = "Cart is empty. Scan items before checkout.";
       const failedPaymentSession = createFailedPaymentSession(basePaymentSession, errorMessage);
       setPaymentSession(failedPaymentSession);
       setSnapshot(applyPaymentSessionToSnapshot(currentSnapshot, failedPaymentSession));
@@ -417,7 +446,7 @@ export function useCartRuntime(): RuntimeActions {
         return "This receipt is already finalized for payment.";
       case "INVALID_RECEIPT_TOTAL":
       case "INVALID_PAYMENT_AMOUNT":
-        return "Receipt total must be greater than 0 before generating payment QR.";
+        return "Cart is empty. Scan items before checkout.";
       case "INVALID_RECEIPT_CURRENCY":
         return "Payment currency must be EGP.";
       case "PAYMOB_NOT_CONFIGURED":
@@ -456,58 +485,14 @@ export function useCartRuntime(): RuntimeActions {
     return normalized.length > 0 ? normalized : null;
   }
 
-  async function buildPaymentQrRequest(
-    cartCode: string,
-    currentSnapshot: NonNullable<typeof snapshotRef.current>
-  ) {
-    const activeSession = await loadActivePaymentSource(cartCode);
-    if (activeSession) {
-      return buildPaymentRequestFromActiveSession(activeSession);
-    }
-
-    return buildPaymentRequestFromSnapshot(currentSnapshot);
-  }
-
-  async function loadActivePaymentSource(cartCode: string) {
-    const result = await getActiveSession(cartCode);
-    if (!result.ok) {
-      return null;
-    }
-
-    return result.data.status === "active"
-      ? result.data
-      : null;
-  }
-
-  function buildPaymentRequestFromActiveSession(activeSession: CartoActiveSessionData) {
-    const amount = roundPaymentAmount(activeSession.total ?? activeSession.receipt?.total ?? activeSession.payment?.amount ?? 0);
-    const currency = normalizePaymentCurrency(activeSession.receipt?.currency ?? activeSession.payment?.currency ?? "EGP");
-    const rawItems = activeSession.cartItems.length
-      ? activeSession.cartItems
-      : activeSession.receipt?.items ?? [];
+  function buildPaymentQrRequest(snapshot: NonNullable<typeof snapshotRef.current>) {
+    const localTotals = calculateCartTotals(deviceCartItems);
 
     return {
-      amount,
-      cartSessionId: normalizeRuntimeId(activeSession.cartSessionId ?? activeSession.sessionId ?? activeSession.session?.id ?? null),
-      currency,
-      items: rawItems
-        .map((item) => mapPaymentItem({
-          name: item.name,
-          quantity: item.quantity,
-          total: item.total,
-          unitPrice: item.price
-        }))
-        .filter((item): item is CartoPaymentQrItemPayload => item !== null),
-      receiptId: normalizeRuntimeId(activeSession.receiptId ?? activeSession.receipt?.id ?? activeSession.payment?.receiptId ?? null)
-    };
-  }
-
-  function buildPaymentRequestFromSnapshot(snapshot: NonNullable<typeof snapshotRef.current>) {
-    return {
-      amount: roundPaymentAmount(snapshot.totals.total ?? snapshot.payment.amount ?? 0),
+      amount: roundPaymentAmount(localTotals.total),
       cartSessionId: normalizeRuntimeId(snapshot.activeListId),
       currency: "EGP",
-      items: snapshot.cartItems
+      items: deviceCartItems
         .map((item) => mapPaymentItem({
           name: item.name,
           quantity: item.quantity,
@@ -517,6 +502,24 @@ export function useCartRuntime(): RuntimeActions {
         .filter((item): item is CartoPaymentQrItemPayload => item !== null),
       receiptId: normalizeRuntimeId(snapshot.payment.transactionId)
     };
+  }
+
+  function syncDeviceCartProduct(productId: string, quantity = 1) {
+    const product = findCatalogProductById(productId);
+    if (!product) {
+      return;
+    }
+
+    addDeviceCartItem({
+      barcode: product.barcode,
+      category: product.category,
+      mapNodeId: product.mapNodeId,
+      name: product.name,
+      productId: product.id,
+      quantity,
+      shelfId: product.shelfId,
+      unitPrice: product.price
+    });
   }
 
   function mapPaymentItem(item: {
@@ -540,11 +543,6 @@ export function useCartRuntime(): RuntimeActions {
       total: Number.isFinite(total) && total >= 0 ? total : 0,
       unitPrice: Number.isFinite(unitPrice) && unitPrice >= 0 ? unitPrice : 0
     } satisfies CartoPaymentQrItemPayload;
-  }
-
-  function normalizePaymentCurrency(value: string | null | undefined) {
-    const normalized = typeof value === "string" ? value.trim().toUpperCase() : "";
-    return normalized || "EGP";
   }
 
   function readRuntimeErrorCode(error: unknown) {

@@ -1,7 +1,7 @@
 import type { CartSnapshot } from "@carto/shared";
 import { useEffect, useRef } from "react";
 import { useCartUiStore } from "../store/cartUiStore";
-import { CART_CODE } from "./config";
+import { CART_CODE, IS_DEV } from "./config";
 import { applyPaymentSessionToSnapshot, buildWaitingSnapshot, getActiveSession, getCartQrCode, getCartoErrorKind, mapActiveSessionToSnapshot } from "./cartoApi";
 
 const WAITING_POLL_INTERVAL_MS = 2000;
@@ -16,7 +16,9 @@ export function useCartoActiveSession(enabled: boolean) {
   const sessionControlMode = useCartUiStore((state) => state.sessionControlMode);
   const setBackendStatus = useCartUiStore((state) => state.setBackendStatus);
   const setConnected = useCartUiStore((state) => state.setConnected);
+  const clearDeviceCart = useCartUiStore((state) => state.clearDeviceCart);
   const clearPaymentSession = useCartUiStore((state) => state.clearPaymentSession);
+  const syncDeviceCartSession = useCartUiStore((state) => state.syncDeviceCartSession);
   const setListStatus = useCartUiStore((state) => state.setListStatus);
   const setSessionControlMode = useCartUiStore((state) => state.setSessionControlMode);
   const setSnapshot = useCartUiStore((state) => state.setSnapshot);
@@ -236,6 +238,8 @@ export function useCartoActiveSession(enabled: boolean) {
           }
 
           consecutiveNetworkFailuresRef.current = 0;
+          clearDeviceCart();
+          syncDeviceCartSession(null);
           setConnected(true);
           setBackendStatus("waiting");
           setSessionControlMode("full");
@@ -259,10 +263,11 @@ export function useCartoActiveSession(enabled: boolean) {
             return;
           }
 
+          const activeCartSessionId = getActiveCartSessionId(result.data);
           const hasStalePaymentSession = Boolean(
             paymentSession
             && (
-              paymentSession.cartSessionId !== getActiveCartSessionId(result.data)
+              paymentSession.cartSessionId !== activeCartSessionId
               || paymentSession.receiptId !== getActiveReceiptId(result.data)
             )
           );
@@ -273,6 +278,13 @@ export function useCartoActiveSession(enabled: boolean) {
 
           consecutiveNetworkFailuresRef.current = 0;
           const receivedItemCount = Array.isArray(listContainer.items) ? listContainer.items.length : 0;
+          syncDeviceCartSession(activeCartSessionId);
+          if (IS_DEV) {
+            console.log("[cart-screen] shoppingList item count", receivedItemCount);
+            console.log("[cart-screen] backend cartItems count", result.data.cartItems.length);
+            console.log("[cart-screen] backend receipt.items count", result.data.receipt?.items?.length ?? 0);
+            console.log("[cart-screen] localDeviceCartItems count", useCartUiStore.getState().deviceCartItems.length);
+          }
           const mappedSnapshot = mapActiveSessionToSnapshot(result.data, latestSnapshot);
           const effectiveSnapshot = applyPaymentSessionToSnapshot(mappedSnapshot, hasStalePaymentSession ? null : paymentSession);
           setConnected(true);
@@ -307,7 +319,7 @@ export function useCartoActiveSession(enabled: boolean) {
       clearPollTimer();
       clearQrRefreshTimer();
     };
-  }, [clearPaymentSession, enabled, sessionControlMode, setBackendStatus, setConnected, setListStatus, setSessionControlMode, setSnapshot]);
+  }, [clearDeviceCart, clearPaymentSession, enabled, sessionControlMode, setBackendStatus, setConnected, setListStatus, setSessionControlMode, setSnapshot, syncDeviceCartSession]);
 
   useEffect(() => {
     if (!enabled || activeSessionRefreshKey === 0 || !mountedRef.current) {

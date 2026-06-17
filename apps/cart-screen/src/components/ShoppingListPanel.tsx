@@ -1,10 +1,13 @@
 import { ScrollView, StyleSheet, Text, View } from "react-native";
+import type { ReceiptLine } from "@carto/shared";
 import type { CartSnapshot, ListDeliveryStatus, UiLanguage } from "../store/cartUiStore";
 import type { AppStrings, ThemePalette } from "../ui/appUi";
 import { scaleSize, shadowStyle } from "../ui/appUi";
+import { getDisplayShoppingListItems } from "./shopperUtils";
 import { ListDeliveryStatusIndicator } from "./ListDeliveryStatusIndicator";
 
 interface ShoppingListPanelProps {
+  cartItems: ReceiptLine[];
   language: UiLanguage;
   listStatus: ListDeliveryStatus;
   onRetryListStatus?: () => void;
@@ -17,6 +20,7 @@ interface ShoppingListPanelProps {
 }
 
 export function ShoppingListPanel({
+  cartItems,
   language,
   listStatus,
   onRetryListStatus,
@@ -27,7 +31,7 @@ export function ShoppingListPanel({
   textScale,
   theme
 }: ShoppingListPanelProps) {
-  const items = snapshot?.shoppingList ?? [];
+  const items = getDisplayShoppingListItems(snapshot, cartItems);
   const isGuestMode = snapshot?.shoppingMode === "GUEST" || (snapshot?.state === "SHOPPING" && items.length === 0);
 
   return (
